@@ -221,6 +221,7 @@ extension ScorePDFViewController {
             overlay.canvasView.drawing = PKDrawing()
             overlay.passiveImageView.image = nil
             rebuildStickerViews(for: pageIndex, overlay: overlay)
+            overlay.isUserInteractionEnabled = false
             overlay.canvasView.isUserInteractionEnabled = false
             overlay.canvasView.drawingGestureRecognizer.isEnabled = false
             overlay.stickerContainerView.isUserInteractionEnabled = false
@@ -232,6 +233,8 @@ extension ScorePDFViewController {
         rebuildPassiveImage(for: pageIndex, overlay: overlay)
         rebuildStickerViews(for: pageIndex, overlay: overlay)
         applyCurrentTool(to: overlay.canvasView)
+        // Pass-through to PDFKit when not in editor mode.
+        overlay.isUserInteractionEnabled = isEditorMode
         let canDrawNow = isEditorMode && isDrawingEnabled && currentToolMode != .sticker
         let canPlaceSticker = isEditorMode && isDrawingEnabled && currentToolMode == .sticker
         overlay.canvasView.isUserInteractionEnabled = canDrawNow

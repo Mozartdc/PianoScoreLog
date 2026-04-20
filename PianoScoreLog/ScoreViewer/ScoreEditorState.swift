@@ -142,6 +142,8 @@ final class ScoreEditorState {
     var redoTrigger: Int = 0
     var prevPageTrigger: Int = 0
     var nextPageTrigger: Int = 0
+    var jumpToPageTrigger: Int = 0
+    var jumpToPageTarget: Int = 0
     var currentPageIndex: Int = 0
     var pageCount: Int = 0
     var isLayerPanelPresented: Bool = false
@@ -170,7 +172,7 @@ final class ScoreEditorState {
         StickerSymbol(id: "dynamicFF", value: "U+E52F"),
         StickerSymbol(id: "dynamicFFF", value: "U+E530"),
         StickerSymbol(id: "sfz", value: "U+E539"),
-        StickerSymbol(id: "eyeWarning", value: "SF:eye.trianglebadge.exclamationmark"),
+        StickerSymbol(id: "eyeWarning", value: "SF:exclamationmark.triangle"),
         StickerSymbol(id: "cresc", value: "U+E53E"),
         StickerSymbol(id: "dim", value: "U+E53F"),
         // Articulation / ornaments
@@ -306,6 +308,8 @@ final class ScoreEditorState {
         redoTrigger = 0
         prevPageTrigger = 0
         nextPageTrigger = 0
+        jumpToPageTrigger = 0
+        jumpToPageTarget = 0
         currentPageIndex = 0
         pageCount = 0
         isLayerPanelPresented = false

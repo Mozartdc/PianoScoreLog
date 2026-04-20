@@ -13,6 +13,12 @@ struct RootShellView: View {
         openPieceIDs.compactMap { id in pieces.first { $0.id == id } }
     }
 
+    private var tabBarPieces: [Piece] {
+        if !openPieces.isEmpty { return openPieces }
+        if let selectedPiece { return [selectedPiece] }
+        return []
+    }
+
     private var selectedPiece: Piece? {
         guard let id = selectedPieceID else { return nil }
         return pieces.first { $0.id == id }
@@ -23,6 +29,7 @@ struct RootShellView: View {
             openPieceIDs.append(piece.id)
         }
         selectedPieceID = piece.id
+        editorState.isFullScreenMode = false
     }
 
     private func closeTab(id: UUID) {
@@ -60,14 +67,11 @@ struct RootShellView: View {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if !openPieces.isEmpty && !editorState.isFullScreenMode {
+                if !tabBarPieces.isEmpty && !editorState.isFullScreenMode {
                     ScoreTabBar(
-                        openPieces: openPieces,
+                        openPieces: tabBarPieces,
                         selectedPieceID: $selectedPieceID,
                         onClose: closeTab
-                    )
-                    .background(
-                        BlurView(style: .systemChromeMaterial, bottomCornerRadius: 16)
                     )
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -155,17 +159,16 @@ struct RootShellView: View {
 
 private struct EmptyScoreBackground: View {
     var body: some View {
-        ZStack {
-            Color(.systemGroupedBackground)
-            VStack(spacing: 10) {
-                Image(systemName: "music.note")
-                    .font(.largeTitle)
-                    .foregroundStyle(.secondary)
-                Text("악보를 선택하세요")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(spacing: 10) {
+            Image(systemName: "music.note")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("악보를 선택하세요")
+                .font(.headline)
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
     }
 }
 

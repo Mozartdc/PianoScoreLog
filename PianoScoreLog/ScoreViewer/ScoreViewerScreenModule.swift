@@ -11,6 +11,11 @@ struct ScoreViewerScreen: View {
     var onRequestOpenPanel: () -> Void = {}
     @State private var viewerPageIndex: Int
     @State private var viewerPageCount: Int = 0
+    private var editorOverlayPanInset: CGFloat {
+        guard editorState.isEditorMode else { return 0 }
+        // Toolbar-only height, plus extra room when sticker tray is visible.
+        return editorState.activeDrawingTool == .sticker ? 176 : 84
+    }
 
     init(piece: Piece, pdfURL: URL,
          editorState: ScoreEditorState,
@@ -26,65 +31,72 @@ struct ScoreViewerScreen: View {
 
     var body: some View {
 #if os(iOS)
-        ZStack(alignment: .top) {
-            let pdfView = ScorePDFView(
-                pieceID: piece.id,
-                pdfURL: pdfURL,
-                pageIndex: Binding(
-                    get: { viewerPageIndex },
-                    set: { viewerPageIndex = $0 }
-                ),
-                pageCount: Binding(
-                    get: { viewerPageCount },
-                    set: { viewerPageCount = $0 }
-                ),
+        GeometryReader { _ in
+            ZStack(alignment: .top) {
+                let pdfView = ScorePDFView(
+                    pieceID: piece.id,
+                    pdfURL: pdfURL,
+                    pageIndex: Binding(
+                        get: { viewerPageIndex },
+                        set: { viewerPageIndex = $0 }
+                    ),
+                    pageCount: Binding(
+                        get: { viewerPageCount },
+                        set: { viewerPageCount = $0 }
+                    ),
                 isEditorMode: editorState.isEditorMode,
+                isViewerInteractionEnabled: editorState.isFullScreenMode,
                 isDrawingEnabled: editorState.activeDrawingTool != nil
                     && editorState.isLayerPanelPresented == false
                     && (editorState.activeLayer?.isVisible ?? false),
-                annotationLayers: editorState.annotationLayers,
-                activeLayerID: editorState.activeLayerID,
-                selectedTool: resolvedDrawingTool(editorState.activeDrawingTool),
-                selectedColor: editorState.selectedDrawingColor,
-                strokeWidth: editorState.strokeWidth,
-                strokeOpacity: editorState.strokeOpacity,
-                eraserMode: editorState.eraserMode,
-                eraserSize: editorState.eraserSize,
-                selectedStickerSymbolID: editorState.selectedStickerSymbolID,
-                stickerColor: editorState.stickerColor,
-                stickerScale: editorState.stickerScale,
-                stickerOpacity: editorState.stickerOpacity,
-                deleteStickerTrigger: editorState.deleteStickerTrigger,
-                toolbarHeight: editorState.isEditorMode ? totalBarBottom : 0,
-                undoTrigger: editorState.undoTrigger,
-                redoTrigger: editorState.redoTrigger,
-                prevPageTrigger: editorState.prevPageTrigger,
-                nextPageTrigger: editorState.nextPageTrigger,
-                onCanvasTap: handleCanvasTap,
-                onStickerSelectionChanged: { isSelected in
-                    editorState.hasSelectedSticker = isSelected
-                },
-                onLayerConfigurationChanged: { layers, active in
-                    editorState.setLayers(layers, activeLayerID: active)
-                }
-            )
-            pdfView
-
-            if editorState.isEditorMode {
-                EditorTopBarOverlay(
-                    state: editorState,
-                    onRequestOpenPanel: onRequestOpenPanel,
-                    onDone: {
-                        withAnimation(.spring()) {
-                            editorState.isEditorMode = false
-                            editorState.isFullScreenMode = true
-                        }
+                    annotationLayers: editorState.annotationLayers,
+                    activeLayerID: editorState.activeLayerID,
+                    selectedTool: resolvedDrawingTool(editorState.activeDrawingTool),
+                    selectedColor: editorState.selectedDrawingColor,
+                    strokeWidth: editorState.strokeWidth,
+                    strokeOpacity: editorState.strokeOpacity,
+                    eraserMode: editorState.eraserMode,
+                    eraserSize: editorState.eraserSize,
+                    selectedStickerSymbolID: editorState.selectedStickerSymbolID,
+                    stickerColor: editorState.stickerColor,
+                    stickerScale: editorState.stickerScale,
+                    stickerOpacity: editorState.stickerOpacity,
+                    deleteStickerTrigger: editorState.deleteStickerTrigger,
+                toolbarHeight: editorOverlayPanInset,
+                    undoTrigger: editorState.undoTrigger,
+                    redoTrigger: editorState.redoTrigger,
+                    prevPageTrigger: editorState.prevPageTrigger,
+                    nextPageTrigger: editorState.nextPageTrigger,
+                    jumpToPageTrigger: editorState.jumpToPageTrigger,
+                    jumpToPageTarget: editorState.jumpToPageTarget,
+                    onCanvasTap: handleCanvasTap,
+                    onStickerSelectionChanged: { isSelected in
+                        editorState.hasSelectedSticker = isSelected
+                    },
+                    onLayerConfigurationChanged: { layers, active in
+                        editorState.setLayers(layers, activeLayerID: active)
                     }
                 )
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(10)
+                pdfView
+
+
+                if editorState.isEditorMode {
+                    EditorTopBarOverlay(
+                        state: editorState,
+                        onRequestOpenPanel: onRequestOpenPanel,
+                        onDone: {
+                            withAnimation(.spring()) {
+                                editorState.isEditorMode = false
+                                editorState.isFullScreenMode = true
+                            }
+                        }
+                    )
+                    .transition(.opacity)
+                }
+
             }
         }
+        .ignoresSafeArea(.all, edges: .bottom)
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: viewerPageIndex) { _, newValue in

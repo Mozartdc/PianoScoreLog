@@ -14,13 +14,16 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     var activePageIndex: Int = 0
     private var currentURL: URL?
     var isEditorMode = false
+    var isViewerInteractionEnabled = false
     var isDrawingEnabled = false
     var drawingCache: [ScorePDFDrawingKey: PKDrawing] = [:]
+    private var toolbarExclusionHeight: CGFloat = 0
 
     private var lastUndoTrigger = 0
     private var lastRedoTrigger = 0
     private var lastPrevPageTrigger = 0
     private var lastNextPageTrigger = 0
+    private var lastJumpToPageTrigger = 0
     private var isTransitioningPage = false
     var overlayViews: [Int: ScorePDFLayeredPageOverlayView] = [:]
     var currentCanvasView: PKCanvasView?
@@ -56,9 +59,31 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     var onStickerSelectionChanged: ((Bool) -> Void)?
     var onLayerConfigurationChanged: (([AnnotationLayer], UUID?) -> Void)?
 
+
+    private func collectScrollViews(in view: UIView) -> [UIScrollView] {
+        var result: [UIScrollView] = []
+        if let scroll = view as? UIScrollView {
+            result.append(scroll)
+        }
+        for child in view.subviews {
+            result.append(contentsOf: collectScrollViews(in: child))
+        }
+        return result
+    }
+
+    private func setPDFPanningEnabled(_ enabled: Bool) {
+        let topInset = (enabled && isEditorMode) ? toolbarExclusionHeight : 0
+        let scrollViews = collectScrollViews(in: pdfView)
+        for scrollView in scrollViews {
+            scrollView.isScrollEnabled = enabled
+            scrollView.bounces = enabled
+            scrollView.contentInset.top = topInset
+            scrollView.verticalScrollIndicatorInsets.top = topInset
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGray6
 
         pdfView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(pdfView)
@@ -74,7 +99,6 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         pdfView.displayDirection = .horizontal
         pdfView.usePageViewController(true, withViewOptions: nil)
         pdfView.displaysPageBreaks = false
-        pdfView.backgroundColor = .systemGray6
         pdfView.pageOverlayViewProvider = self
         pdfView.isInMarkupMode = true
         activeLayerID = annotationLayers.first?.id
@@ -113,6 +137,7 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
             applyPendingConfigurationIfNeeded()
         }
         updateMinimumZoomScaleIfNeeded(forceScaleToFit: false)
+        setPDFPanningEnabled(true)
     }
 
     deinit {
@@ -242,8 +267,17 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         applyEditorMode()
     }
 
+    func setViewerInteractionEnabled(_ enabled: Bool) {
+        guard isViewerInteractionEnabled != enabled else { return }
+        isViewerInteractionEnabled = enabled
+        applyEditorMode()
+    }
+
     func setToolbarExclusionHeight(_ height: CGFloat) {
-        _ = height
+        let normalized = max(0, height)
+        guard abs(toolbarExclusionHeight - normalized) > 0.5 else { return }
+        toolbarExclusionHeight = normalized
+        applyEditorMode()
     }
 
     func setDrawingTool(
@@ -254,6 +288,16 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         eraserMode: EraserMode,
         eraserSize: CGFloat
     ) {
+        let sameTool = currentToolMode == tool
+        let sameColor = currentColor.isEqual(color)
+        let sameWidth = abs(currentWidth - width) < 0.0001
+        let sameOpacity = abs(currentOpacity - opacity) < 0.0001
+        let sameEraserMode = currentEraserMode == eraserMode
+        let sameEraserSize = abs(currentEraserSize - eraserSize) < 0.0001
+        if sameTool && sameColor && sameWidth && sameOpacity && sameEraserMode && sameEraserSize {
+            return
+        }
+
         let wasStickerMode = currentToolMode == .sticker
         currentToolMode = tool
         currentColor = color
@@ -273,10 +317,20 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     }
 
     func setStickerToolState(symbolID: String?, color: UIColor, scale: CGFloat, opacity: CGFloat) {
+        let normalizedScale = max(0.2, min(scale, 3.0))
+        let normalizedOpacity = max(0.1, min(opacity, 1.0))
+        let sameSymbol = selectedStickerSymbolID == symbolID
+        let sameColor = currentStickerColor.isEqual(color)
+        let sameScale = abs(currentStickerScale - normalizedScale) < 0.0001
+        let sameOpacity = abs(currentStickerOpacity - normalizedOpacity) < 0.0001
+        if sameSymbol && sameColor && sameScale && sameOpacity {
+            return
+        }
+
         selectedStickerSymbolID = symbolID
         currentStickerColor = color
-        currentStickerScale = max(0.2, min(scale, 3.0))
-        currentStickerOpacity = max(0.1, min(opacity, 1.0))
+        currentStickerScale = normalizedScale
+        currentStickerOpacity = normalizedOpacity
     }
 
     func applyStickerDelete(trigger: Int) {
@@ -317,6 +371,15 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
             goToPage(index: target)
             activePageIndex = target
         }
+    }
+
+    func applyPageJump(trigger: Int, target: Int) {
+        guard trigger != lastJumpToPageTrigger else { return }
+        lastJumpToPageTrigger = trigger
+        let maxIndex = max(0, (pdfView.document?.pageCount ?? 1) - 1)
+        let safe = max(0, min(target, maxIndex))
+        goToPage(index: safe)
+        activePageIndex = safe
     }
 
     func persistCurrentPageDrawing() {
@@ -366,7 +429,10 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
 
     func applyEditorMode() {
         singleTapRecognizer?.isEnabled = !isEditorMode
+        setPDFPanningEnabled(true)
         for overlay in overlayViews.values {
+            // Pass all touches straight through to PDFKit when not in editor mode.
+            overlay.isUserInteractionEnabled = isEditorMode
             let canDrawNow = isEditorMode && isDrawingEnabled
                 && currentToolMode != .sticker
                 && currentToolMode != .text

@@ -189,13 +189,13 @@ struct StickerTrayView: View {
                         } label: {
                             stickerPaletteGlyph(
                                 for: symbol,
-                                color: state.selectedStickerSymbolID == symbol.id ? Color.accentColor : Color.primary
+                                color: Color.primary
                             )
                             .frame(width: 44, height: 34)
                             .background(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .fill(state.selectedStickerSymbolID == symbol.id
-                                          ? Color.accentColor.opacity(0.14) : Color.clear)
+                                          ? Color(uiColor: .tertiarySystemFill) : Color.clear)
                             )
                             .contentShape(Rectangle())
                         }
@@ -306,4 +306,31 @@ struct StickerTrayView: View {
         }
     }
 }
+struct PageJumpPopoverView: View {
+    let currentPage: Int
+    let totalPages: Int
+    let onJump: (Int) -> Void
+
+    @State private var text = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("\(currentPage)", text: $text)
+                .keyboardType(.numberPad)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 72)
+            Text("/ \(totalPages)")
+                .foregroundStyle(.secondary)
+            Button("이동") {
+                if let n = Int(text) { onJump(n) }
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding()
+    }
+}
+
 #endif

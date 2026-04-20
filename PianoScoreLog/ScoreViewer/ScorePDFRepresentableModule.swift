@@ -9,6 +9,7 @@ struct ScorePDFView: UIViewControllerRepresentable {
     @Binding var pageIndex: Int
     @Binding var pageCount: Int
     let isEditorMode: Bool
+    let isViewerInteractionEnabled: Bool
     let isDrawingEnabled: Bool
     let annotationLayers: [AnnotationLayer]
     let activeLayerID: UUID?
@@ -28,6 +29,8 @@ struct ScorePDFView: UIViewControllerRepresentable {
     let redoTrigger: Int
     let prevPageTrigger: Int
     let nextPageTrigger: Int
+    let jumpToPageTrigger: Int
+    let jumpToPageTarget: Int
     let onCanvasTap: () -> Void
     let onStickerSelectionChanged: (Bool) -> Void
     let onLayerConfigurationChanged: ([AnnotationLayer], UUID?) -> Void
@@ -41,6 +44,7 @@ struct ScorePDFView: UIViewControllerRepresentable {
         context.coordinator.bind(controller: controller)
         controller.onSingleTap = onCanvasTap
         controller.setEditorMode(isEditorMode)
+        controller.setViewerInteractionEnabled(isViewerInteractionEnabled)
         controller.setDrawingEnabled(isDrawingEnabled)
         controller.setDrawingTool(
             selectedTool,
@@ -60,12 +64,14 @@ struct ScorePDFView: UIViewControllerRepresentable {
         controller.setToolbarExclusionHeight(toolbarHeight)
         controller.applyUndoRedo(undoTrigger: undoTrigger, redoTrigger: redoTrigger)
         controller.applyPageMove(prevTrigger: prevPageTrigger, nextTrigger: nextPageTrigger)
+        controller.applyPageJump(trigger: jumpToPageTrigger, target: jumpToPageTarget)
         return controller
     }
 
     func updateUIViewController(_ uiViewController: ScorePDFViewController, context: Context) {
         uiViewController.configure(with: pdfURL, pieceID: pieceID, startPageIndex: pageIndex)
         uiViewController.setEditorMode(isEditorMode)
+        uiViewController.setViewerInteractionEnabled(isViewerInteractionEnabled)
         uiViewController.setDrawingEnabled(isDrawingEnabled)
         if context.coordinator.shouldApplyLayerConfiguration(for: pieceID) {
             uiViewController.setLayerConfiguration(annotationLayers, activeLayerID: activeLayerID)
@@ -88,6 +94,7 @@ struct ScorePDFView: UIViewControllerRepresentable {
         uiViewController.setToolbarExclusionHeight(toolbarHeight)
         uiViewController.applyUndoRedo(undoTrigger: undoTrigger, redoTrigger: redoTrigger)
         uiViewController.applyPageMove(prevTrigger: prevPageTrigger, nextTrigger: nextPageTrigger)
+        uiViewController.applyPageJump(trigger: jumpToPageTrigger, target: jumpToPageTarget)
     }
 
     static func dismantleUIViewController(_ uiViewController: ScorePDFViewController, coordinator: Coordinator) {
