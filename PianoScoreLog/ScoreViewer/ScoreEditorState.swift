@@ -332,10 +332,8 @@ final class ScoreEditorState {
 
     private func pushRecentColor(_ color: Color) {
         guard let rgba = RGBAColor(color: color) else { return }
-        // Keep existing order stable so palette chips don't visually reshuffle on every tap.
-        if recentColorEntries.contains(rgba) {
-            return
-        }
+        // 이미 있는 색상이면 제거 후 맨 앞으로 이동 — 최근 선택순 유지.
+        recentColorEntries.removeAll { $0 == rgba }
         recentColorEntries.insert(rgba, at: 0)
         if recentColorEntries.count > Self.maxRecentColorCount {
             recentColorEntries = Array(recentColorEntries.prefix(Self.maxRecentColorCount))

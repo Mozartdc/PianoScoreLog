@@ -221,7 +221,7 @@ extension ScorePDFViewController {
             overlay.canvasView.drawing = PKDrawing()
             overlay.passiveImageView.image = nil
             rebuildStickerViews(for: pageIndex, overlay: overlay)
-            overlay.isUserInteractionEnabled = false
+            overlay.isUserInteractionEnabled = true   // hitTest 패스스루로 실질적 통과
             overlay.canvasView.isUserInteractionEnabled = false
             overlay.canvasView.drawingGestureRecognizer.isEnabled = false
             overlay.stickerContainerView.isUserInteractionEnabled = false
@@ -233,8 +233,8 @@ extension ScorePDFViewController {
         rebuildPassiveImage(for: pageIndex, overlay: overlay)
         rebuildStickerViews(for: pageIndex, overlay: overlay)
         applyCurrentTool(to: overlay.canvasView)
-        // Pass-through to PDFKit when not in editor mode.
-        overlay.isUserInteractionEnabled = isEditorMode
+        // 오버레이는 항상 interactive. hitTest 패스스루가 손가락 패닝을 PDFKit 에 전달한다.
+        overlay.isUserInteractionEnabled = true
         let canDrawNow = isEditorMode && isDrawingEnabled && currentToolMode != .sticker
         let canPlaceSticker = isEditorMode && isDrawingEnabled && currentToolMode == .sticker
         overlay.canvasView.isUserInteractionEnabled = canDrawNow

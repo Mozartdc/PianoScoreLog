@@ -24,7 +24,6 @@ struct ScorePDFView: UIViewControllerRepresentable {
     let stickerScale: CGFloat
     let stickerOpacity: CGFloat
     let deleteStickerTrigger: Int
-    let toolbarHeight: CGFloat
     let undoTrigger: Int
     let redoTrigger: Int
     let prevPageTrigger: Int
@@ -61,7 +60,6 @@ struct ScorePDFView: UIViewControllerRepresentable {
             opacity: stickerOpacity
         )
         controller.applyStickerDelete(trigger: deleteStickerTrigger)
-        controller.setToolbarExclusionHeight(toolbarHeight)
         controller.applyUndoRedo(undoTrigger: undoTrigger, redoTrigger: redoTrigger)
         controller.applyPageMove(prevTrigger: prevPageTrigger, nextTrigger: nextPageTrigger)
         controller.applyPageJump(trigger: jumpToPageTrigger, target: jumpToPageTarget)
@@ -91,7 +89,6 @@ struct ScorePDFView: UIViewControllerRepresentable {
             opacity: stickerOpacity
         )
         uiViewController.applyStickerDelete(trigger: deleteStickerTrigger)
-        uiViewController.setToolbarExclusionHeight(toolbarHeight)
         uiViewController.applyUndoRedo(undoTrigger: undoTrigger, redoTrigger: redoTrigger)
         uiViewController.applyPageMove(prevTrigger: prevPageTrigger, nextTrigger: nextPageTrigger)
         uiViewController.applyPageJump(trigger: jumpToPageTrigger, target: jumpToPageTarget)

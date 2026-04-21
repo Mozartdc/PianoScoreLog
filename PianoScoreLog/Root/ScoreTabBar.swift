@@ -29,9 +29,6 @@ struct ScoreTabBar: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             // .bar = 네비게이션바·탭바에 쓰는 시스템 소재. 뒤에 콘텐츠가 없어도 올바른 시스템 색조를 유지.
             .background(.bar)
-            .overlay(alignment: .bottom) {
-                Divider()
-            }
             // 컨테이너 너비 측정 — Color.clear이라 시각적 영향 없음
             .overlay {
                 GeometryReader { geo in

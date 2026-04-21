@@ -17,7 +17,6 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     var isViewerInteractionEnabled = false
     var isDrawingEnabled = false
     var drawingCache: [ScorePDFDrawingKey: PKDrawing] = [:]
-    private var toolbarExclusionHeight: CGFloat = 0
 
     private var lastUndoTrigger = 0
     private var lastRedoTrigger = 0
@@ -60,6 +59,9 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     var onLayerConfigurationChanged: (([AnnotationLayer], UUID?) -> Void)?
 
 
+    /// PDFKit 내부 UIScrollView를 재귀 탐색한다.
+    /// usePageViewController(true) 환경에서는 내부 뷰 계층이 페이지 전환 시
+    /// 재구성될 수 있으므로, 캐싱하지 않고 호출 시점에만 탐색한다.
     private func collectScrollViews(in view: UIView) -> [UIScrollView] {
         var result: [UIScrollView] = []
         if let scroll = view as? UIScrollView {
@@ -71,14 +73,14 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         return result
     }
 
+    /// panning on/off 와 bounces 만 제어한다.
+    /// exclusion height 보정은 pdfTopConstraint 로 처리하므로
+    /// contentInset / verticalScrollIndicatorInsets 는 여기서 건드리지 않는다.
     private func setPDFPanningEnabled(_ enabled: Bool) {
-        let topInset = (enabled && isEditorMode) ? toolbarExclusionHeight : 0
         let scrollViews = collectScrollViews(in: pdfView)
         for scrollView in scrollViews {
             scrollView.isScrollEnabled = enabled
             scrollView.bounces = enabled
-            scrollView.contentInset.top = topInset
-            scrollView.verticalScrollIndicatorInsets.top = topInset
         }
     }
 
@@ -137,7 +139,8 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
             applyPendingConfigurationIfNeeded()
         }
         updateMinimumZoomScaleIfNeeded(forceScaleToFit: false)
-        setPDFPanningEnabled(true)
+        // setPDFPanningEnabled 는 여기서 매 레이아웃 패스마다 호출하지 않는다.
+        // 상태 변화(applyEditorMode)가 발생할 때만 호출되도록 applyEditorMode 에서 담당한다.
     }
 
     deinit {
@@ -273,12 +276,8 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         applyEditorMode()
     }
 
-    func setToolbarExclusionHeight(_ height: CGFloat) {
-        let normalized = max(0, height)
-        guard abs(toolbarExclusionHeight - normalized) > 0.5 else { return }
-        toolbarExclusionHeight = normalized
-        applyEditorMode()
-    }
+    // setToolbarExclusionHeight 는 제거됨.
+    // 레이아웃 책임은 ScoreViewerScreen(VStack)이 갖고, PDFKit은 남은 영역을 순정으로 사용한다.
 
     func setDrawingTool(
         _ tool: DrawingToolMode,
@@ -429,10 +428,14 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
 
     func applyEditorMode() {
         singleTapRecognizer?.isEnabled = !isEditorMode
+        // 레이아웃 오프셋 없음. ScoreViewerScreen(VStack)이 PDFView 영역을 결정한다.
+        // 여기서는 입력 정책(패닝, 드로잉, 스티커)만 관리한다.
         setPDFPanningEnabled(true)
         for overlay in overlayViews.values {
-            // Pass all touches straight through to PDFKit when not in editor mode.
-            overlay.isUserInteractionEnabled = isEditorMode
+            // 오버레이는 항상 isUserInteractionEnabled = true.
+            // hitTest 패스스루로 손가락 패닝은 PDFKit 에 전달되고,
+            // 서브뷰(canvasView, stickerContainerView) 만 모드에 따라 켜고 끈다.
+            overlay.isUserInteractionEnabled = true
             let canDrawNow = isEditorMode && isDrawingEnabled
                 && currentToolMode != .sticker
                 && currentToolMode != .text

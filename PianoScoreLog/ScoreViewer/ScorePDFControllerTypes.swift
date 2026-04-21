@@ -20,6 +20,14 @@ final class ScorePDFLayeredPageOverlayView: UIView {
     let stickerContainerView = UIView()
     let canvasView = PKCanvasView()
 
+    /// 서브뷰(PKCanvasView, stickerContainerView)가 터치를 처리하지 않으면
+    /// nil을 반환해 PDFKit 스크롤뷰까지 터치를 통과시킨다.
+    /// PKCanvasView는 pencilOnly 정책이므로 손가락 패닝은 PDFKit에 전달된다.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let result = super.hitTest(point, with: event)
+        return result === self ? nil : result
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         passiveImageView.translatesAutoresizingMaskIntoConstraints = false

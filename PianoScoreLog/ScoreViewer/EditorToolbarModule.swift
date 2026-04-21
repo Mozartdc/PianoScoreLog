@@ -18,10 +18,12 @@ struct EditorTopBarOverlay: View {
             .frame(maxWidth: .infinity)
 
             if state.activeDrawingTool == .sticker {
-                Divider()
                 StickerTrayView(state: state)
             }
         }
+        // UIToolbar 배경은 투명으로 두고, 여기서 한 층으로 통일.
+        // 탭바와 같은 .bar 소재가 툴바·스탬프 바 전체에 균일하게 깔린다.
+        .background(.bar)
     }
 }
 
@@ -43,13 +45,26 @@ private struct EditorToolbarRepresentable: UIViewControllerRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: EditorToolbarViewController, context: Context) -> CGSize? {
         let fallbackWidth = uiViewController.view.window?.windowScene?.screen.bounds.width
             ?? max(uiViewController.view.bounds.width, 1024)
-        let width = proposal.width ?? fallbackWidth
+        let rawWidth = proposal.width ?? fallbackWidth
+        // 폭이 0 또는 비정상 값으로 들어오면 UIToolbar 내부 Auto Layout 경고가 발생한다.
+        // sizeThatFits 측정 단계에서 최소 폭을 보장해 경고를 억제한다.
+        let width = max(rawWidth, 44)
         let height = uiViewController.preferredToolbarHeight(for: width)
         return CGSize(width: width, height: height)
     }
 
     static func dismantleUIViewController(_ uiViewController: EditorToolbarViewController, coordinator: ()) {
         uiViewController.dismissPresentedIfNeeded()
+    }
+}
+
+/// 툴바 영역 바깥의 터치를 하위 뷰(PDF 캔버스)로 통과시키는 컨테이너 뷰.
+/// super.hitTest가 자기 자신(PassthroughView)을 반환하면 nil을 돌려줘서
+/// 투명 여백의 터치가 아래 레이어로 전달되도록 한다.
+private final class PassthroughView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let result = super.hitTest(point, with: event)
+        return result === self ? nil : result
     }
 }
 
@@ -79,6 +94,13 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
     private let pageCountItem = UIBarButtonItem()
     private var pageCountButton: UIButton?
     private let pageNextItem = UIBarButtonItem()
+
+    override func loadView() {
+        // PassthroughView: 툴바 바깥 투명 영역의 터치를 PDF 캔버스로 통과시킴
+        let v = PassthroughView()
+        v.backgroundColor = .clear
+        view = v
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -118,6 +140,15 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
     }
 
     private func setupLayout() {
+        // UIToolbar 자체 배경을 투명으로 설정한다.
+        // EditorTopBarOverlay에서 SwiftUI .background(.bar) 한 층으로
+        // 툴바·스탬프 바를 통일해 탭바와 같은 소재로 보이게 한다.
+        let transparent = UIToolbarAppearance()
+        transparent.configureWithTransparentBackground()
+        toolbar.standardAppearance = transparent
+        toolbar.scrollEdgeAppearance = transparent
+        toolbar.compactAppearance = transparent
+
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(toolbar)
 
@@ -229,8 +260,15 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
         pagePrevItem.isEnabled = state.currentPageIndex > 0
         pageNextItem.isEnabled = state.currentPageIndex < max(0, state.pageCount - 1)
         pageCountButton?.setTitle("\(state.currentPageIndex + 1)/\(max(state.pageCount, 1))", for: .normal)
+        let colorTools: Set<DrawingTool> = [.pen, .pencil, .highlighter]
         for (tool, item) in toolItems {
             item.isEnabled = !unimplementedTools.contains(tool)
+            // 활성 펜류 아이콘에 선택 색상 반영, 나머지는 시스템 기본 tint
+            if tool == state.activeDrawingTool, colorTools.contains(tool) {
+                item.tintColor = UIColor(state.selectedDrawingColor)
+            } else {
+                item.tintColor = nil
+            }
         }
     }
 

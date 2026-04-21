@@ -67,13 +67,30 @@ struct RootShellView: View {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                if !tabBarPieces.isEmpty && !editorState.isFullScreenMode {
-                    ScoreTabBar(
-                        openPieces: tabBarPieces,
-                        selectedPieceID: $selectedPieceID,
-                        onClose: closeTab
-                    )
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                VStack(spacing: 0) {
+                    if !tabBarPieces.isEmpty && !editorState.isFullScreenMode {
+                        ScoreTabBar(
+                            openPieces: tabBarPieces,
+                            selectedPieceID: $selectedPieceID,
+                            onClose: closeTab
+                        )
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    if editorState.isEditorMode {
+                        EditorTopBarOverlay(
+                            state: editorState,
+                            onRequestOpenPanel: {
+                                withAnimation(.spring()) { isPanelOpen = true }
+                            },
+                            onDone: {
+                                withAnimation(.spring()) {
+                                    editorState.isEditorMode = false
+                                    editorState.isFullScreenMode = true
+                                }
+                            }
+                        )
+                        .transition(.opacity)
+                    }
                 }
             }
             .sheet(isPresented: Binding(
@@ -124,11 +141,7 @@ struct RootShellView: View {
                 piece: piece,
                 pdfURL: scoreURL,
                 editorState: editorState
-            ) {
-                withAnimation(.spring()) {
-                    isPanelOpen = true
-                }
-            }
+            )
             .id(piece.id)
         } else {
             EmptyScoreBackground()
