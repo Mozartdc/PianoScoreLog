@@ -14,7 +14,6 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     var activePageIndex: Int = 0
     private var currentURL: URL?
     var isEditorMode = false
-    var isViewerInteractionEnabled = false
     var isDrawingEnabled = false
     var drawingCache: [ScorePDFDrawingKey: PKDrawing] = [:]
 
@@ -22,7 +21,6 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     private var lastRedoTrigger = 0
     private var lastPrevPageTrigger = 0
     private var lastNextPageTrigger = 0
-    private var lastJumpToPageTrigger = 0
     private var isTransitioningPage = false
     var overlayViews: [Int: ScorePDFLayeredPageOverlayView] = [:]
     var currentCanvasView: PKCanvasView?
@@ -42,8 +40,6 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     var hoverDotView: UIView? = nil
     private var lastDeleteStickerTrigger = 0
     var pendingStickerGestureSnapshot: ([StickerPlacement], UUID?)?
-    var resizeHandleInitialScale: CGFloat = 1.0
-    var resizeHandleInitialDistance: CGFloat = 0
 
     var annotationLayers: [AnnotationLayer] = [AnnotationLayer(name: "레이어 1", isVisible: true)]
     var activeLayerID: UUID? = nil
@@ -51,42 +47,14 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     var selectedStickerID: UUID?
 
     // MARK: - Text tool state
-    var textPlacements: [TextPlacement] = []
-    var selectedTextBoxID: UUID?          // selected but not editing
-    var activeTextEditorPlacement: TextPlacement?
     weak var activeTextEditor: UITextView?
     var activeTextEditorPageIndex: Int?
+    var editingAnnotation: PDFAnnotation?
 
     var onSingleTap: (() -> Void)?
     var onPageChanged: ((Int, Int) -> Void)?
     var onStickerSelectionChanged: ((Bool) -> Void)?
     var onLayerConfigurationChanged: (([AnnotationLayer], UUID?) -> Void)?
-
-
-    /// PDFKit 내부 UIScrollView를 재귀 탐색한다.
-    /// usePageViewController(true) 환경에서는 내부 뷰 계층이 페이지 전환 시
-    /// 재구성될 수 있으므로, 캐싱하지 않고 호출 시점에만 탐색한다.
-    private func collectScrollViews(in view: UIView) -> [UIScrollView] {
-        var result: [UIScrollView] = []
-        if let scroll = view as? UIScrollView {
-            result.append(scroll)
-        }
-        for child in view.subviews {
-            result.append(contentsOf: collectScrollViews(in: child))
-        }
-        return result
-    }
-
-    /// panning on/off 와 bounces 만 제어한다.
-    /// exclusion height 보정은 pdfTopConstraint 로 처리하므로
-    /// contentInset / verticalScrollIndicatorInsets 는 여기서 건드리지 않는다.
-    private func setPDFPanningEnabled(_ enabled: Bool) {
-        let scrollViews = collectScrollViews(in: pdfView)
-        for scrollView in scrollViews {
-            scrollView.isScrollEnabled = enabled
-            scrollView.bounces = enabled
-        }
-    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -143,8 +111,6 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
             applyPendingConfigurationIfNeeded()
         }
         updateMinimumZoomScaleIfNeeded(forceScaleToFit: false)
-        // setPDFPanningEnabled 는 여기서 매 레이아웃 패스마다 호출하지 않는다.
-        // 상태 변화(applyEditorMode)가 발생할 때만 호출되도록 applyEditorMode 에서 담당한다.
     }
 
     deinit {
@@ -193,10 +159,7 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         currentCanvasView = nil
         overlayViews.removeAll(keepingCapacity: true)
         stickerPlacements = ScoreFileStore.loadStickerPlacements(pieceID: pieceID)
-        textPlacements = ScoreFileStore.loadTextPlacements(pieceID: pieceID)
         setSelectedSticker(nil)
-        selectedTextBoxID = nil
-        commitTextEditing()
 
         if let stored = ScoreFileStore.loadAnnotationLayersMetadata(pieceID: pieceID), !stored.layers.isEmpty {
             annotationLayers = stored.layers
@@ -264,8 +227,6 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     func setEditorMode(_ enabled: Bool) {
         guard isEditorMode != enabled else { return }
         if isEditorMode, !enabled {
-            selectedTextBoxID = nil
-            commitTextEditing()
             persistVisibleCanvases()
             persistStickerPlacements()
         }
@@ -279,14 +240,9 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         applyEditorMode()
     }
 
-    func setViewerInteractionEnabled(_ enabled: Bool) {
-        guard isViewerInteractionEnabled != enabled else { return }
-        isViewerInteractionEnabled = enabled
-        applyEditorMode()
+    func setToolbarExclusionHeight(_ height: CGFloat) {
+        _ = height
     }
-
-    // setToolbarExclusionHeight 는 제거됨.
-    // 레이아웃 책임은 ScoreViewerScreen(VStack)이 갖고, PDFKit은 남은 영역을 순정으로 사용한다.
 
     func setDrawingTool(
         _ tool: DrawingToolMode,
@@ -381,19 +337,9 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         }
     }
 
-    func applyPageJump(trigger: Int, target: Int) {
-        guard trigger != lastJumpToPageTrigger else { return }
-        lastJumpToPageTrigger = trigger
-        let maxIndex = max(0, (pdfView.document?.pageCount ?? 1) - 1)
-        let safe = max(0, min(target, maxIndex))
-        goToPage(index: safe)
-        activePageIndex = safe
-    }
-
     func persistCurrentPageDrawing() {
         saveDrawing(for: activePageIndex)
         persistStickerPlacements()
-        persistTextPlacements()
     }
 
     @objc private func handleSingleTap() {
@@ -438,14 +384,7 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
 
     func applyEditorMode() {
         singleTapRecognizer?.isEnabled = !isEditorMode
-        // 레이아웃 오프셋 없음. ScoreViewerScreen(VStack)이 PDFView 영역을 결정한다.
-        // 여기서는 입력 정책(패닝, 드로잉, 스티커)만 관리한다.
-        setPDFPanningEnabled(true)
         for overlay in overlayViews.values {
-            // 오버레이는 항상 isUserInteractionEnabled = true.
-            // hitTest 패스스루로 손가락 패닝은 PDFKit 에 전달되고,
-            // 서브뷰(canvasView, stickerContainerView) 만 모드에 따라 켜고 끈다.
-            overlay.isUserInteractionEnabled = true
             let canDrawNow = isEditorMode && isDrawingEnabled
                 && currentToolMode != .sticker
                 && currentToolMode != .text

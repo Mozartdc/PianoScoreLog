@@ -80,34 +80,6 @@ struct StickerPlacement: Identifiable, Codable, Equatable {
     }
 }
 
-struct TextPlacement: Codable, Identifiable, Equatable {
-    let id: UUID
-    var pageIndex: Int
-    var layerID: UUID
-    var normalizedX: Double   // center
-    var normalizedY: Double   // center
-    var normalizedWidth: Double
-    var rtfData: Data         // NSAttributedString as RTF
-
-    init(
-        id: UUID = UUID(),
-        pageIndex: Int,
-        layerID: UUID,
-        normalizedX: Double,
-        normalizedY: Double,
-        normalizedWidth: Double = 0.4,
-        rtfData: Data = Data()
-    ) {
-        self.id = id
-        self.pageIndex = pageIndex
-        self.layerID = layerID
-        self.normalizedX = normalizedX
-        self.normalizedY = normalizedY
-        self.normalizedWidth = normalizedWidth
-        self.rtfData = rtfData
-    }
-}
-
 struct StickerSymbol: Identifiable, Equatable {
     let id: String
     let value: String
@@ -170,8 +142,6 @@ final class ScoreEditorState {
     var redoTrigger: Int = 0
     var prevPageTrigger: Int = 0
     var nextPageTrigger: Int = 0
-    var jumpToPageTrigger: Int = 0
-    var jumpToPageTarget: Int = 0
     var currentPageIndex: Int = 0
     var pageCount: Int = 0
     var isLayerPanelPresented: Bool = false
@@ -336,8 +306,6 @@ final class ScoreEditorState {
         redoTrigger = 0
         prevPageTrigger = 0
         nextPageTrigger = 0
-        jumpToPageTrigger = 0
-        jumpToPageTarget = 0
         currentPageIndex = 0
         pageCount = 0
         isLayerPanelPresented = false
@@ -360,8 +328,10 @@ final class ScoreEditorState {
 
     private func pushRecentColor(_ color: Color) {
         guard let rgba = RGBAColor(color: color) else { return }
-        // 이미 있는 색상이면 제거 후 맨 앞으로 이동 — 최근 선택순 유지.
-        recentColorEntries.removeAll { $0 == rgba }
+        // Keep existing order stable so palette chips don't visually reshuffle on every tap.
+        if recentColorEntries.contains(rgba) {
+            return
+        }
         recentColorEntries.insert(rgba, at: 0)
         if recentColorEntries.count > Self.maxRecentColorCount {
             recentColorEntries = Array(recentColorEntries.prefix(Self.maxRecentColorCount))

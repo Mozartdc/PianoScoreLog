@@ -180,23 +180,8 @@ struct StickerTrayView: View {
     private let rows = [GridItem(.fixed(34), spacing: 8), GridItem(.fixed(34), spacing: 8)]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ColorPicker(
-                    "",
-                    selection: Binding(
-                        get: { state.stickerColor },
-                        set: { state.stickerColor = $0; state.selectDrawingColor($0) }
-                    ),
-                    supportsOpacity: false
-                )
-                .labelsHidden()
-                .frame(width: 52)
-                .frame(maxHeight: .infinity)
-
-                Divider()
-                    .padding(.vertical, 12)
-
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
                 LazyHGrid(rows: rows, spacing: 8) {
                     ForEach(ScoreEditorState.stickerSymbols) { symbol in
                         Button {
@@ -220,8 +205,86 @@ struct StickerTrayView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 8)
             }
+            .frame(height: 84)
+
+            Divider()
+
+            HStack(spacing: 0) {
+                if let symbol = selectedSymbol {
+                    stickerPaletteGlyph(for: symbol, color: Color(state.stickerColor))
+                        .frame(width: 44, height: 48)
+                        .frame(width: 52)
+                    Divider()
+                }
+
+                HStack(spacing: 6) {
+                    let recent = Array(state.recentColors.prefix(3))
+                    ForEach(0..<3, id: \.self) { index in
+                        if index < recent.count {
+                            let color = recent[index]
+                            Button {
+                                state.stickerColor = color
+                                state.selectDrawingColor(color)
+                            } label: {
+                                Circle()
+                                    .fill(color)
+                                    .frame(width: 22, height: 22)
+                                    .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Color.clear.frame(width: 22, height: 22)
+                        }
+                    }
+                    ColorPicker(
+                        "",
+                        selection: Binding(
+                            get: { state.stickerColor },
+                            set: { state.stickerColor = $0; state.selectDrawingColor($0) }
+                        ),
+                        supportsOpacity: false
+                    )
+                    .labelsHidden()
+                }
+                .padding(.horizontal, 10)
+
+                Divider()
+
+                HStack(spacing: 6) {
+                    Text("크기")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Slider(value: $state.stickerScale, in: 0.2...3.0)
+                        .frame(width: 100)
+                    Button {
+                        state.stickerScale = 0.5
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 10)
+
+                Divider()
+
+                HStack(spacing: 6) {
+                    Text("투명")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Slider(value: $state.stickerOpacity, in: 0.1...1.0)
+                        .frame(width: 90)
+                }
+                .padding(.horizontal, 10)
+            }
+            .frame(height: 48)
         }
-        .frame(height: 84)
+    }
+
+    private var selectedSymbol: StickerSymbol? {
+        guard let id = state.selectedStickerSymbolID else { return nil }
+        return ScoreEditorState.stickerSymbols.first(where: { $0.id == id })
     }
 
     @ViewBuilder
@@ -232,7 +295,7 @@ struct StickerTrayView: View {
             value: symbol.value,
             color: UIColor(color),
             canvasSize: paletteBox,
-            fillRatio: max(0.10, min(0.95, 0.74 * stickerPaletteFineTuneMultiplier(symbolID: symbol.id) * stickerSizeScale(symbolID: symbol.id)))
+            fillRatio: max(0.10, min(0.95, 0.74 * stickerPaletteFineTuneMultiplier(symbolID: symbol.id)))
         ) {
             Image(uiImage: image)
                 .interpolation(.high)
@@ -243,31 +306,4 @@ struct StickerTrayView: View {
         }
     }
 }
-struct PageJumpPopoverView: View {
-    let currentPage: Int
-    let totalPages: Int
-    let onJump: (Int) -> Void
-
-    @State private var text = ""
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        HStack(spacing: 8) {
-            TextField("\(currentPage)", text: $text)
-                .keyboardType(.numberPad)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 72)
-            Text("/ \(totalPages)")
-                .foregroundStyle(.secondary)
-            Button("이동") {
-                if let n = Int(text) { onJump(n) }
-                dismiss()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-        .padding()
-    }
-}
-
 #endif

@@ -90,9 +90,110 @@ final class ScorePDFStickerDeleteButton: UIButton {
         super.init(frame: .zero)
     }
 
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -10, dy: -10).contains(point)
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+}
+
+final class ScorePDFStickerResizeHandleView: UIView {
+    let stickerID: UUID
+
+    init(stickerID: UUID) {
+        self.stickerID = stickerID
+        super.init(frame: .zero)
+        isUserInteractionEnabled = true
+        backgroundColor = .systemBlue
+        layer.cornerRadius = 3
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -6, dy: -6).contains(point)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class ScorePDFTextDeleteButton: UIButton {
+    let textID: UUID
+
+    init(textID: UUID) {
+        self.textID = textID
+        super.init(frame: .zero)
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -10, dy: -10).contains(point)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+/// Left / right resize handles shown when a text box is selected (not editing).
+final class ScorePDFTextResizeHandleView: UIView {
+    enum Side { case left, right }
+    let textID: UUID
+    let side: Side
+
+    init(textID: UUID, side: Side) {
+        self.textID = textID
+        self.side = side
+        super.init(frame: .zero)
+        isUserInteractionEnabled = true
+        backgroundColor = .white
+        layer.borderColor = UIColor.systemBlue.cgColor
+        layer.borderWidth = 1.0
+        layer.cornerRadius = 6   // perfect circle at 12×12
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.2
+        layer.shadowRadius = 1.5
+        layer.shadowOffset = .zero
+    }
+
+    /// Expand hit area so thin handles are easy to grab.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -10, dy: -10).contains(point)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+final class ScorePDFTextBoxView: UIView {
+    let textID: UUID
+    let textView: UITextView
+
+    init(textID: UUID) {
+        self.textID = textID
+        self.textView = UITextView()
+        super.init(frame: .zero)
+        isUserInteractionEnabled = true
+        backgroundColor = .clear
+
+        textView.backgroundColor = .clear
+        textView.isScrollEnabled = false
+        textView.isEditable = false
+        textView.isSelectable = false
+        textView.textContainerInset = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(textView)
+        NSLayoutConstraint.activate([
+            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textView.topAnchor.constraint(equalTo: topAnchor),
+            textView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
 }
 #endif

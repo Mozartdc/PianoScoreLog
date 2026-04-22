@@ -189,11 +189,6 @@ enum ScoreFileStore {
         return dir.appendingPathComponent("stickers.json", isDirectory: false)
     }
 
-    static func textsMetadataURL(pieceID: UUID) throws -> URL {
-        let dir = try annotationsDirectoryURL(pieceID: pieceID)
-        return dir.appendingPathComponent("texts.json", isDirectory: false)
-    }
-
     static func loadAnnotationData(pieceID: UUID, pageIndex: Int) -> Data? {
         do {
             let url = try annotationPageURL(pieceID: pieceID, pageIndex: pageIndex)
@@ -286,25 +281,6 @@ enum ScoreFileStore {
         } catch {
             // no-op
         }
-    }
-
-    static func saveTextPlacements(_ placements: [TextPlacement], pieceID: UUID) {
-        struct Payload: Codable { let placements: [TextPlacement] }
-        do {
-            let url = try textsMetadataURL(pieceID: pieceID)
-            let data = try JSONEncoder().encode(Payload(placements: placements))
-            try data.write(to: url, options: .atomic)
-        } catch {}
-    }
-
-    static func loadTextPlacements(pieceID: UUID) -> [TextPlacement] {
-        struct Payload: Codable { let placements: [TextPlacement] }
-        do {
-            let url = try textsMetadataURL(pieceID: pieceID)
-            guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-            let data = try Data(contentsOf: url)
-            return try JSONDecoder().decode(Payload.self, from: data).placements
-        } catch { return [] }
     }
 
     static func loadStickerPlacements(pieceID: UUID) -> [StickerPlacement] {

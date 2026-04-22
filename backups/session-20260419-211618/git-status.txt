@@ -1,0 +1,8 @@
+ D PianoScoreLog/Root/BlurView.swift
+ M PianoScoreLog/Root/RootShellView.swift
+ M PianoScoreLog/Root/ScoreTabBar.swift
+ M PianoScoreLog/ScoreViewer/EditorToolbarModule.swift
+ M PianoScoreLog/ScoreViewer/EditorToolbarPopoverViews.swift
+ M PianoScoreLog/ScoreViewer/ScoreEditorState.swift
+ M PianoScoreLog/ScoreViewer/ScorePDFViewController.swift
+?? backups/
