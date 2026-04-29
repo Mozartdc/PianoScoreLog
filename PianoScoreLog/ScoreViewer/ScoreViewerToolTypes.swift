@@ -7,8 +7,6 @@ enum DrawingTool: String, CaseIterable, Identifiable {
     case sticker
     case postit
     case text
-    case ruler
-
     var id: String { rawValue }
 
     var symbol: String {
@@ -20,7 +18,6 @@ enum DrawingTool: String, CaseIterable, Identifiable {
         case .sticker: return "music.note.list"
         case .postit: return "note.text"
         case .text: return "textformat"
-        case .ruler: return "ruler"
         }
     }
 }
@@ -65,4 +62,5 @@ enum EraserMode: String, CaseIterable, Identifiable {
     case vector = "획"
     var id: String { rawValue }
 }
+
 #endif

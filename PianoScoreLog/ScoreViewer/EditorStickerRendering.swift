@@ -32,23 +32,39 @@ func stickerPaletteFineTuneMultiplier(symbolID: String) -> CGFloat {
     }
 }
 
+/// 현재 크기를 유지할 스탬프는 1.0, 나머지는 0.8을 반환한다.
+/// 팔레트 fillRatio와 캔버스 pointSize 양쪽에서 공통으로 사용한다.
+func stickerSizeScale(symbolID: String) -> CGFloat {
+    let exemptIDs: Set<String> = [
+        "trebleClef", "bassClef",
+        "cresc", "dim",
+        "accent", "staccato", "marcato", "fermata",
+        "aTempo", "rall",
+        "wholeNote", "halfNote", "quarterNote", "eighthNote", "sixteenthNote",
+        "wholeRest", "halfRest", "quarterRest", "eighthRest", "sixteenthRest"
+    ]
+    return exemptIDs.contains(symbolID) ? 1.0 : 0.8
+}
+
 func stickerSymbolPointSize(symbolID: String, baseSize: CGFloat) -> CGFloat {
+    let scale = stickerSizeScale(symbolID: symbolID)
+
     if ["dynamicP", "dynamicPP", "dynamicPPP", "dynamicMP", "dynamicMF", "dynamicF", "dynamicFF", "dynamicFFF", "sfz"].contains(symbolID) {
-        return baseSize * 1.25
+        return baseSize * 1.25 * scale
     }
     if ["accent", "marcato", "strongAccent", "staccato", "tenuto", "fermata", "trill", "mordent", "turn"].contains(symbolID) {
-        return baseSize * 1.48
+        return baseSize * 1.48 * scale
     }
     if ["sharp", "flat", "doubleSharp", "doubleFlat", "natural"].contains(symbolID) {
-        return baseSize * 1.52
+        return baseSize * 1.52 * scale
     }
     if ["cresc", "dim"].contains(symbolID) {
-        return baseSize * 1.35
+        return baseSize * 1.35 * scale
     }
     if ["rit", "aTempo", "rall", "DC", "DS", "fine"].contains(symbolID) {
-        return baseSize * 0.88
+        return baseSize * 0.88 * scale
     }
-    return baseSize
+    return baseSize * scale
 }
 
 func stickerDisplayText(from value: String) -> String {

@@ -83,6 +83,15 @@ extension ScorePDFViewController {
             handleTextTap(recognizer)
             return
         }
+
+        // 이미지가 선택됐거나 관리 모드 상태에서 빈 공간 탭하면 선택/모드 해제
+        if selectedImageID != nil || isImageManagementMode {
+            selectedImageID = nil
+            isImageManagementMode = false
+            refreshAllOverlayViews()
+            return
+        }
+
         guard currentToolMode == .sticker else { return }
         guard isEditorMode && isDrawingEnabled else { return }
         guard let container = recognizer.view else { return }
@@ -301,7 +310,10 @@ extension ScorePDFViewController {
             y: CGFloat(stickerPlacements[idx].normalizedY) * container.bounds.height
         )
         if let deleteButton = container.subviews.compactMap({ $0 as? ScorePDFStickerDeleteButton }).first(where: { $0.stickerID == stickerID }) {
-            deleteButton.frame = CGRect(x: label.frame.maxX, y: label.frame.minY - 18, width: 18, height: 18)
+            deleteButton.frame = CGRect(x: label.frame.maxX - 7, y: label.frame.minY - 7, width: 14, height: 14)
+        }
+        if let resizeHandle = container.subviews.compactMap({ $0 as? ScorePDFStickerResizeHandleView }).first(where: { $0.stickerID == stickerID }) {
+            resizeHandle.frame = CGRect(x: label.frame.maxX - 3, y: label.frame.maxY - 3, width: 6, height: 6)
         }
         if shouldFinalizeGesture,
            let snapshot = pendingStickerGestureSnapshot {
@@ -317,41 +329,57 @@ extension ScorePDFViewController {
         }
     }
 
-    @objc func handleStickerPinch(_ recognizer: UIPinchGestureRecognizer) {
+    @objc func handleResizeHandlePan(_ recognizer: UIPanGestureRecognizer) {
         guard currentToolMode == .sticker else { return }
         guard isEditorMode && isDrawingEnabled else { return }
-        guard let label = recognizer.view as? ScorePDFStickerGlyphView else { return }
-        let stickerID = label.stickerID
+        guard let handle = recognizer.view as? ScorePDFStickerResizeHandleView,
+              let container = handle.superview else { return }
+        let stickerID = handle.stickerID
         guard let idx = stickerPlacements.firstIndex(where: { $0.id == stickerID }) else { return }
         let pageIndex = stickerPlacements[idx].pageIndex
 
-        let shouldFinalizeGesture: Bool
         switch recognizer.state {
         case .began:
-            setSelectedSticker(stickerID)
-            hideHoverGlyph()
             pendingStickerGestureSnapshot = (stickerPlacements, selectedStickerID)
-            shouldFinalizeGesture = false
-        case .changed:
-            shouldFinalizeGesture = false
-        case .ended, .cancelled:
-            shouldFinalizeGesture = true
-        default:
-            return
-        }
+            resizeHandleInitialScale = CGFloat(stickerPlacements[idx].scale)
+            let stickerCenter = CGPoint(
+                x: CGFloat(stickerPlacements[idx].normalizedX) * container.bounds.width,
+                y: CGFloat(stickerPlacements[idx].normalizedY) * container.bounds.height
+            )
+            resizeHandleInitialDistance = hypot(
+                handle.center.x - stickerCenter.x,
+                handle.center.y - stickerCenter.y
+            )
 
-        if !shouldFinalizeGesture {
-            let oldScale = CGFloat(stickerPlacements[idx].scale)
-            let scaled = oldScale * recognizer.scale
-            let clamped = min(max(scaled, 0.2), 3.0)
-            stickerPlacements[idx].scale = Double(clamped)
-            currentStickerScale = clamped
-            let ratio = oldScale > 0 ? (clamped / oldScale) : 1
-            if ratio.isFinite, ratio > 0 {
-                label.transform = label.transform.scaledBy(x: ratio, y: ratio)
+        case .changed:
+            guard resizeHandleInitialDistance > 1 else { return }
+            let location = recognizer.location(in: container)
+            let stickerCenter = CGPoint(
+                x: CGFloat(stickerPlacements[idx].normalizedX) * container.bounds.width,
+                y: CGFloat(stickerPlacements[idx].normalizedY) * container.bounds.height
+            )
+            let currentDistance = hypot(location.x - stickerCenter.x, location.y - stickerCenter.y)
+            let rawScale = resizeHandleInitialScale * currentDistance / resizeHandleInitialDistance
+            let newScale = min(max(rawScale, 0.2), 3.0)
+            stickerPlacements[idx].scale = Double(newScale)
+            currentStickerScale = newScale
+
+            if let label = container.subviews
+                .compactMap({ $0 as? ScorePDFStickerGlyphView })
+                .first(where: { $0.stickerID == stickerID }) {
+                let ratio = resizeHandleInitialScale > 0 ? (newScale / resizeHandleInitialScale) : 1
+                if ratio.isFinite, ratio > 0 {
+                    label.transform = CGAffineTransform(scaleX: ratio, y: ratio)
+                }
+                handle.frame = CGRect(x: label.frame.maxX - 3, y: label.frame.maxY - 3, width: 6, height: 6)
+                if let deleteBtn = container.subviews
+                    .compactMap({ $0 as? ScorePDFStickerDeleteButton })
+                    .first(where: { $0.stickerID == stickerID }) {
+                    deleteBtn.frame = CGRect(x: label.frame.maxX - 7, y: label.frame.minY - 7, width: 14, height: 14)
+                }
             }
-            recognizer.scale = 1
-        } else {
+
+        case .ended, .cancelled:
             if let snapshot = pendingStickerGestureSnapshot {
                 commitStickerStateChange(
                     from: snapshot.0,
@@ -363,6 +391,9 @@ extension ScorePDFViewController {
             if let overlay = overlayViews[pageIndex] {
                 rebuildStickerViews(for: pageIndex, overlay: overlay)
             }
+
+        default:
+            return
         }
     }
 

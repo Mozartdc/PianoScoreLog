@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import Combine
 import Observation
 
 #if os(iOS)
@@ -8,24 +9,24 @@ struct ScoreViewerScreen: View {
     let pdfURL: URL
     let editorState: ScoreEditorState
     var totalBarBottom: CGFloat = 0
+    let pageTurnManager: PageTurnManager
     @State private var viewerPageIndex: Int
     @State private var viewerPageCount: Int = 0
 
     init(piece: Piece, pdfURL: URL,
          editorState: ScoreEditorState,
+         pageTurnManager: PageTurnManager,
          totalBarBottom: CGFloat = 0) {
         self.piece = piece
         self.pdfURL = pdfURL
         self.editorState = editorState
+        self.pageTurnManager = pageTurnManager
         self.totalBarBottom = totalBarBottom
         _viewerPageIndex = State(initialValue: max(0, piece.lastViewedPage))
     }
 
     var body: some View {
 #if os(iOS)
-        // ScorePDFView가 전체 영역을 채우고, EditorTopBarOverlay는 safeAreaInset으로 주입한다.
-        // SwiftUI가 자동으로 ScorePDFViewController.additionalSafeAreaInsets.top을 갱신하므로
-        // PDFKit이 safe area를 인식해 탭바 연장처럼 자연스럽게 동작한다.
         ScorePDFView(
             pieceID: piece.id,
             pdfURL: pdfURL,
@@ -55,12 +56,18 @@ struct ScoreViewerScreen: View {
             stickerScale: editorState.stickerScale,
             stickerOpacity: editorState.stickerOpacity,
             deleteStickerTrigger: editorState.deleteStickerTrigger,
+            imageManagementTrigger: editorState.imageManagementTrigger,
+            photoImportMenuTrigger: editorState.photoImportMenuTrigger,
+            galleryImportTrigger: editorState.galleryImportTrigger,
+            fileImportTrigger: editorState.fileImportTrigger,
+            isRulerActive: editorState.isRulerActive,
             undoTrigger: editorState.undoTrigger,
             redoTrigger: editorState.redoTrigger,
             prevPageTrigger: editorState.prevPageTrigger,
             nextPageTrigger: editorState.nextPageTrigger,
             jumpToPageTrigger: editorState.jumpToPageTrigger,
             jumpToPageTarget: editorState.jumpToPageTarget,
+            pageTurnKeyboardProvider: pageTurnManager.keyboardProvider,
             onCanvasTap: handleCanvasTap,
             onStickerSelectionChanged: { isSelected in
                 editorState.hasSelectedSticker = isSelected
@@ -83,7 +90,15 @@ struct ScoreViewerScreen: View {
             editorState.pageCount = viewerPageCount
         }
         .animation(.spring(), value: editorState.isEditorMode)
+        // PageTurnManager 이벤트 → 페이지 트리거
+        .onReceive(pageTurnManager.pageEvents) { event in
+            switch event {
+            case .nextPage:     editorState.nextPageTrigger += 1
+            case .previousPage: editorState.prevPageTrigger += 1
+            }
+        }
         .onDisappear {
+            pageTurnManager.isEnabled = false   // 모든 provider 비활성화
             let safeIndex = max(0, min(viewerPageIndex, max(0, viewerPageCount - 1)))
             piece.lastViewedPage = safeIndex
         }

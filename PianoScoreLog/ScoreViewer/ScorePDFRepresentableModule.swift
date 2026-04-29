@@ -24,12 +24,18 @@ struct ScorePDFView: UIViewControllerRepresentable {
     let stickerScale: CGFloat
     let stickerOpacity: CGFloat
     let deleteStickerTrigger: Int
+    let imageManagementTrigger: Int
+    let photoImportMenuTrigger: Int
+    let galleryImportTrigger: Int
+    let fileImportTrigger: Int
+    let isRulerActive: Bool
     let undoTrigger: Int
     let redoTrigger: Int
     let prevPageTrigger: Int
     let nextPageTrigger: Int
     let jumpToPageTrigger: Int
     let jumpToPageTarget: Int
+    let pageTurnKeyboardProvider: KeyboardPageTurnInputProvider?
     let onCanvasTap: () -> Void
     let onStickerSelectionChanged: (Bool) -> Void
     let onLayerConfigurationChanged: ([AnnotationLayer], UUID?) -> Void
@@ -41,6 +47,7 @@ struct ScorePDFView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ScorePDFViewController {
         let controller = ScorePDFViewController()
         context.coordinator.bind(controller: controller)
+        controller.keyboardProvider = pageTurnKeyboardProvider
         controller.onSingleTap = onCanvasTap
         controller.setEditorMode(isEditorMode)
         controller.setViewerInteractionEnabled(isViewerInteractionEnabled)
@@ -60,9 +67,14 @@ struct ScorePDFView: UIViewControllerRepresentable {
             opacity: stickerOpacity
         )
         controller.applyStickerDelete(trigger: deleteStickerTrigger)
+        controller.applyImageManagementTrigger(imageManagementTrigger)
+        controller.applyPhotoImportMenuTrigger(photoImportMenuTrigger)
+        controller.applyGalleryImportTrigger(galleryImportTrigger)
+        controller.applyFileImportTrigger(fileImportTrigger)
         controller.applyUndoRedo(undoTrigger: undoTrigger, redoTrigger: redoTrigger)
         controller.applyPageMove(prevTrigger: prevPageTrigger, nextTrigger: nextPageTrigger)
         controller.applyPageJump(trigger: jumpToPageTrigger, target: jumpToPageTarget)
+        controller.setRulerActive(isRulerActive)
         return controller
     }
 
@@ -89,9 +101,14 @@ struct ScorePDFView: UIViewControllerRepresentable {
             opacity: stickerOpacity
         )
         uiViewController.applyStickerDelete(trigger: deleteStickerTrigger)
+        uiViewController.applyImageManagementTrigger(imageManagementTrigger)
+        uiViewController.applyPhotoImportMenuTrigger(photoImportMenuTrigger)
+        uiViewController.applyGalleryImportTrigger(galleryImportTrigger)
+        uiViewController.applyFileImportTrigger(fileImportTrigger)
         uiViewController.applyUndoRedo(undoTrigger: undoTrigger, redoTrigger: redoTrigger)
         uiViewController.applyPageMove(prevTrigger: prevPageTrigger, nextTrigger: nextPageTrigger)
         uiViewController.applyPageJump(trigger: jumpToPageTrigger, target: jumpToPageTarget)
+        uiViewController.setRulerActive(isRulerActive)
     }
 
     static func dismantleUIViewController(_ uiViewController: ScorePDFViewController, coordinator: Coordinator) {

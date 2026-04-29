@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 
 private struct AnnotationLayersMetadata: Codable {
     let layers: [AnnotationLayer]
@@ -189,6 +192,11 @@ enum ScoreFileStore {
         return dir.appendingPathComponent("stickers.json", isDirectory: false)
     }
 
+    static func textsMetadataURL(pieceID: UUID) throws -> URL {
+        let dir = try annotationsDirectoryURL(pieceID: pieceID)
+        return dir.appendingPathComponent("texts.json", isDirectory: false)
+    }
+
     static func loadAnnotationData(pieceID: UUID, pageIndex: Int) -> Data? {
         do {
             let url = try annotationPageURL(pieceID: pieceID, pageIndex: pageIndex)
@@ -281,6 +289,82 @@ enum ScoreFileStore {
         } catch {
             // no-op
         }
+    }
+
+    static func saveTextPlacements(_ placements: [TextPlacement], pieceID: UUID) {
+        struct Payload: Codable { let placements: [TextPlacement] }
+        do {
+            let url = try textsMetadataURL(pieceID: pieceID)
+            let data = try JSONEncoder().encode(Payload(placements: placements))
+            try data.write(to: url, options: .atomic)
+        } catch {}
+    }
+
+    static func loadTextPlacements(pieceID: UUID) -> [TextPlacement] {
+        struct Payload: Codable { let placements: [TextPlacement] }
+        do {
+            let url = try textsMetadataURL(pieceID: pieceID)
+            guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(Payload.self, from: data).placements
+        } catch { return [] }
+    }
+
+    // MARK: - Image placements
+
+    static func imagesDirectoryURL(pieceID: UUID) throws -> URL {
+        let base = try pieceDirectoryURL(pieceID: pieceID)
+        let dir = base.appendingPathComponent("images", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    static func imagesMetadataURL(pieceID: UUID) throws -> URL {
+        let dir = try annotationsDirectoryURL(pieceID: pieceID)
+        return dir.appendingPathComponent("images.json", isDirectory: false)
+    }
+
+#if os(iOS)
+    /// Saves a UIImage as JPEG and returns the generated filename.
+    @discardableResult
+    static func saveImageFile(_ image: UIImage, pieceID: UUID) throws -> String {
+        let dir = try imagesDirectoryURL(pieceID: pieceID)
+        let filename = "\(UUID().uuidString).jpg"
+        let url = dir.appendingPathComponent(filename, isDirectory: false)
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try data.write(to: url, options: .atomic)
+        return filename
+    }
+
+    static func loadImageFile(filename: String, pieceID: UUID) -> UIImage? {
+        guard let dir = try? imagesDirectoryURL(pieceID: pieceID) else { return nil }
+        let url = dir.appendingPathComponent(filename, isDirectory: false)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+#endif
+
+    static func saveImagePlacements(_ placements: [ImagePlacement], pieceID: UUID) {
+        struct Payload: Codable { let placements: [ImagePlacement] }
+        do {
+            let url = try imagesMetadataURL(pieceID: pieceID)
+            let data = try JSONEncoder().encode(Payload(placements: placements))
+            try data.write(to: url, options: .atomic)
+        } catch {}
+    }
+
+    static func loadImagePlacements(pieceID: UUID) -> [ImagePlacement] {
+        struct Payload: Codable { let placements: [ImagePlacement] }
+        do {
+            let url = try imagesMetadataURL(pieceID: pieceID)
+            guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(Payload.self, from: data).placements
+        } catch { return [] }
     }
 
     static func loadStickerPlacements(pieceID: UUID) -> [StickerPlacement] {

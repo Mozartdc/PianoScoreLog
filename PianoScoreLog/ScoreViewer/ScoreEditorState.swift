@@ -80,6 +80,65 @@ struct StickerPlacement: Identifiable, Codable, Equatable {
     }
 }
 
+struct TextPlacement: Codable, Identifiable, Equatable {
+    let id: UUID
+    var pageIndex: Int
+    var layerID: UUID
+    var normalizedX: Double   // center
+    var normalizedY: Double   // center
+    var normalizedWidth: Double
+    var rtfData: Data         // NSAttributedString as RTF
+
+    init(
+        id: UUID = UUID(),
+        pageIndex: Int,
+        layerID: UUID,
+        normalizedX: Double,
+        normalizedY: Double,
+        normalizedWidth: Double = 0.4,
+        rtfData: Data = Data()
+    ) {
+        self.id = id
+        self.pageIndex = pageIndex
+        self.layerID = layerID
+        self.normalizedX = normalizedX
+        self.normalizedY = normalizedY
+        self.normalizedWidth = normalizedWidth
+        self.rtfData = rtfData
+    }
+}
+
+struct ImagePlacement: Codable, Identifiable, Equatable {
+    let id: UUID
+    var pageIndex: Int
+    var layerID: UUID
+    var normalizedX: Double     // center
+    var normalizedY: Double     // center
+    var normalizedWidth: Double
+    var normalizedHeight: Double
+    var imageFilename: String   // filename inside pieces/<pieceID>/images/
+
+    init(
+        id: UUID = UUID(),
+        pageIndex: Int,
+        layerID: UUID,
+        normalizedX: Double,
+        normalizedY: Double,
+        normalizedWidth: Double,
+        normalizedHeight: Double,
+        imageFilename: String
+    ) {
+        self.id = id
+        self.pageIndex = pageIndex
+        self.layerID = layerID
+        self.normalizedX = normalizedX
+        self.normalizedY = normalizedY
+        self.normalizedWidth = normalizedWidth
+        self.normalizedHeight = normalizedHeight
+        self.imageFilename = imageFilename
+    }
+}
+
 struct StickerSymbol: Identifiable, Equatable {
     let id: String
     let value: String
@@ -138,6 +197,10 @@ final class ScoreEditorState {
     var eraserMode: EraserMode = .bitmap
 #endif
     var eraserSize: CGFloat = 0.5
+    var imageManagementTrigger: Int = 0  // 메뉴 열릴 때 핸들 전체 표시
+    var photoImportMenuTrigger: Int = 0  // 소스 선택창 (ScorePDFViewController가 처리)
+    var galleryImportTrigger: Int = 0   // 사진 앨범
+    var fileImportTrigger: Int = 0      // 파일
     var undoTrigger: Int = 0
     var redoTrigger: Int = 0
     var prevPageTrigger: Int = 0
@@ -147,6 +210,7 @@ final class ScoreEditorState {
     var currentPageIndex: Int = 0
     var pageCount: Int = 0
     var isLayerPanelPresented: Bool = false
+    var isRulerActive: Bool = false
     var annotationLayers: [AnnotationLayer] = [AnnotationLayer(name: "레이어 1", isVisible: true)]
     var activeLayerID: UUID? = nil
     private var recentColorEntries: [RGBAColor] = []
@@ -303,6 +367,7 @@ final class ScoreEditorState {
         isEditorMode = false
         isFullScreenMode = false
         activeDrawingTool = nil
+        isRulerActive = false
         hasSelectedSticker = false
         undoTrigger = 0
         redoTrigger = 0

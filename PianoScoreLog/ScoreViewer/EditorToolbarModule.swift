@@ -5,6 +5,7 @@ import UIKit
 
 struct EditorTopBarOverlay: View {
     @Bindable var state: ScoreEditorState
+    let pageTurnManager: PageTurnManager
     let onRequestOpenPanel: () -> Void
     let onDone: () -> Void
 
@@ -12,6 +13,7 @@ struct EditorTopBarOverlay: View {
         VStack(spacing: 0) {
             EditorToolbarRepresentable(
                 state: state,
+                pageTurnManager: pageTurnManager,
                 onRequestOpenPanel: onRequestOpenPanel,
                 onDone: onDone
             )
@@ -29,17 +31,18 @@ struct EditorTopBarOverlay: View {
 
 private struct EditorToolbarRepresentable: UIViewControllerRepresentable {
     @Bindable var state: ScoreEditorState
+    let pageTurnManager: PageTurnManager
     let onRequestOpenPanel: () -> Void
     let onDone: () -> Void
 
     func makeUIViewController(context: Context) -> EditorToolbarViewController {
         let controller = EditorToolbarViewController()
-        controller.apply(state: state, onRequestOpenPanel: onRequestOpenPanel, onDone: onDone)
+        controller.apply(state: state, pageTurnManager: pageTurnManager, onRequestOpenPanel: onRequestOpenPanel, onDone: onDone)
         return controller
     }
 
     func updateUIViewController(_ uiViewController: EditorToolbarViewController, context: Context) {
-        uiViewController.apply(state: state, onRequestOpenPanel: onRequestOpenPanel, onDone: onDone)
+        uiViewController.apply(state: state, pageTurnManager: pageTurnManager, onRequestOpenPanel: onRequestOpenPanel, onDone: onDone)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: EditorToolbarViewController, context: Context) -> CGSize? {
@@ -70,6 +73,7 @@ private final class PassthroughView: UIView {
 
 private final class EditorToolbarViewController: UIViewController, UIPopoverPresentationControllerDelegate {
     private var state: ScoreEditorState?
+    private var pageTurnManager: PageTurnManager?
     private var onRequestOpenPanel: (() -> Void)?
     private var onDone: (() -> Void)?
 
@@ -78,8 +82,8 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
 
     private var toolItems: [DrawingTool: UIBarButtonItem] = [:]
     private var featureItems: [PianologFeature: UIBarButtonItem] = [:]
-    private let visibleTools: [DrawingTool] = [.pen, .pencil, .highlighter, .eraser, .sticker, .text, .ruler]
-    private let unimplementedTools: Set<DrawingTool> = [.postit, .ruler]
+    private let visibleTools: [DrawingTool] = [.pen, .pencil, .highlighter, .eraser, .sticker, .text]
+    private let unimplementedTools: Set<DrawingTool> = [.postit]
     private let visibleFeatures: [PianologFeature] = [.metronome, .recording]
 
     private let homeItem = UIBarButtonItem()
@@ -87,6 +91,7 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
     private let undoItem = UIBarButtonItem()
     private let redoItem = UIBarButtonItem()
     private let photoImportItem = UIBarButtonItem()
+    private let rulerItem = UIBarButtonItem()
     private let gestureItem = UIBarButtonItem()
     private let doneItem = UIBarButtonItem()
     // Page navigation
@@ -120,8 +125,9 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
         }
     }
 
-    func apply(state: ScoreEditorState, onRequestOpenPanel: @escaping () -> Void, onDone: @escaping () -> Void) {
+    func apply(state: ScoreEditorState, pageTurnManager: PageTurnManager, onRequestOpenPanel: @escaping () -> Void, onDone: @escaping () -> Void) {
         self.state = state
+        self.pageTurnManager = pageTurnManager
         self.onRequestOpenPanel = onRequestOpenPanel
         self.onDone = onDone
         guard isViewLoaded else { return }
@@ -202,10 +208,11 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
             toolItems[tool] = item
         }
 
+        // 펜 옵션과 동일한 패턴: target/action → .popover UIHostingController
         photoImportItem.image = UIImage(systemName: PianologFeature.photoImport.symbol, withConfiguration: smallScale)
         photoImportItem.style = .plain
         photoImportItem.target = self
-        photoImportItem.action = #selector(handleFeatureItem(_:))
+        photoImportItem.action = #selector(handlePhotoImport(_:))
         featureItems[.photoImport] = photoImportItem
 
         undoItem.image = UIImage(systemName: "arrow.uturn.backward", withConfiguration: smallScale)
@@ -228,10 +235,15 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
             featureItems[feature] = item
         }
 
+        rulerItem.image = UIImage(systemName: "ruler", withConfiguration: smallScale)
+        rulerItem.style = .plain
+        rulerItem.target = self
+        rulerItem.action = #selector(handleRuler(_:))
+
         gestureItem.image = UIImage(systemName: "hand.tap", withConfiguration: smallScale)
         gestureItem.style = .plain
         gestureItem.target = self
-        gestureItem.action = #selector(handleGesture)
+        gestureItem.action = #selector(handleGesture(_:))
 
         doneItem.image = UIImage(systemName: "arrow.up.left.and.arrow.down.right", withConfiguration: smallScale)
         doneItem.style = .plain
@@ -245,6 +257,7 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
         var items: [UIBarButtonItem] = [.flexibleSpace()]
         items += [homeItem, pagePrevItem, pageCountItem, pageNextItem, layerItem]
         items += visibleTools.compactMap { toolItems[$0] }
+        items.append(rulerItem)
         if let photo = featureItems[.photoImport] {
             items.append(photo)
         }
@@ -260,6 +273,7 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
         pagePrevItem.isEnabled = state.currentPageIndex > 0
         pageNextItem.isEnabled = state.currentPageIndex < max(0, state.pageCount - 1)
         pageCountButton?.setTitle("\(state.currentPageIndex + 1)/\(max(state.pageCount, 1))", for: .normal)
+        rulerItem.tintColor = (state.isRulerActive) ? .systemBlue : nil
         let colorTools: Set<DrawingTool> = [.pen, .pencil, .highlighter]
         for (tool, item) in toolItems {
             item.isEnabled = !unimplementedTools.contains(tool)
@@ -363,11 +377,69 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
     }
 
     @objc private func handleFeatureItem(_ sender: UIBarButtonItem) {
-        guard featureItems.first(where: { $0.value === sender }) != nil else { return }
         refreshUI()
     }
 
-    @objc private func handleGesture() {}
+    @objc private func handlePhotoImport(_ sender: UIBarButtonItem) {
+        guard let state else { return }
+        // 버튼 탭 시 기존 이미지 핸들 표시
+        state.imageManagementTrigger += 1
+        presentPhotoImportSource(sourceItem: sender)
+    }
+
+    private func presentPhotoImportSource(sourceItem: UIBarButtonItem) {
+        guard let state else { return }
+        let sourceView = PhotoImportSourceView(
+            onGallery: { [weak self, weak state] in
+                self?.dismiss(animated: true)
+                state?.galleryImportTrigger += 1
+            },
+            onFile: { [weak self, weak state] in
+                self?.dismiss(animated: true)
+                state?.fileImportTrigger += 1
+            }
+        )
+        let host = UIHostingController(rootView: sourceView)
+        host.modalPresentationStyle = .popover
+        host.preferredContentSize = CGSize(width: 200, height: 88)
+        if let popover = host.popoverPresentationController {
+            popover.permittedArrowDirections = [.up]
+            popover.canOverlapSourceViewRect = false
+            popover.sourceView = view
+            popover.sourceRect = popupAnchorRect(for: sourceItem)
+            popover.delegate = self
+        }
+        if let presented = presentedViewController {
+            presented.dismiss(animated: false)
+        }
+        present(host, animated: true)
+    }
+
+    @objc private func handleRuler(_ sender: UIBarButtonItem) {
+        guard let state else { return }
+        state.isRulerActive.toggle()
+        refreshUI()
+    }
+
+    @objc private func handleGesture(_ sender: UIBarButtonItem) {
+        guard let manager = pageTurnManager else { return }
+        let settingsView = HandsFreeSettingsView(manager: manager)
+        let host = UIHostingController(rootView: settingsView)
+        host.modalPresentationStyle = .popover
+        // sizingOptions 미사용 — @Observable 피드백 루프 방지
+        host.preferredContentSize = CGSize(width: 320, height: 440)
+        if let popover = host.popoverPresentationController {
+            popover.permittedArrowDirections = [.up]
+            popover.canOverlapSourceViewRect = false
+            popover.sourceView = view
+            popover.sourceRect = popupAnchorRect(for: sender)
+            popover.delegate = self
+        }
+        if let presented = presentedViewController {
+            presented.dismiss(animated: false)
+        }
+        present(host, animated: true)
+    }
 
     @objc private func handleDone() {
         onDone?()
@@ -424,6 +496,7 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
             _ = state.pageCount
             _ = state.activeDrawingTool
             _ = state.selectedDrawingColor
+            _ = state.isRulerActive
         } onChange: { [weak self] in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -434,4 +507,30 @@ private final class EditorToolbarViewController: UIViewController, UIPopoverPres
         }
     }
 }
+
+private struct PhotoImportSourceView: View {
+    let onGallery: () -> Void
+    let onFile: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onGallery) {
+                Label("사진 앨범", systemImage: "photo.on.rectangle")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+            }
+            .foregroundStyle(.primary)
+            Divider()
+            Button(action: onFile) {
+                Label("파일", systemImage: "folder")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+            }
+            .foregroundStyle(.primary)
+        }
+    }
+}
+
 #endif
