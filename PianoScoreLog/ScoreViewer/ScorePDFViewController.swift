@@ -5,6 +5,7 @@ import UIKit
 
 final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider, PKCanvasViewDelegate, UITextViewDelegate {
     let pdfView = PDFView()
+    private let thumbnailView = PDFThumbnailView()
     private var singleTapRecognizer: UITapGestureRecognizer?
     private var pendingConfiguration: ScorePDFPendingConfiguration?
     private var hasInitialLayout = false
@@ -16,7 +17,11 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     var isEditorMode = false
     var isViewerInteractionEnabled = false
     var isDrawingEnabled = false
+    var isRulerActive = false
     var drawingCache: [ScorePDFDrawingKey: PKDrawing] = [:]
+    /// canvasView.drawing을 프로그래밍 방식으로 설정하는 동안 true.
+    /// canvasViewDrawingDidChange 가 저장을 건너뛰도록 한다.
+    var isSettingDrawingProgrammatically = false
 
     private var lastUndoTrigger = 0
     private var lastRedoTrigger = 0
@@ -57,6 +62,18 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     weak var activeTextEditor: UITextView?
     var activeTextEditorPageIndex: Int?
 
+    // MARK: - Image tool state
+    var imagePlacements: [ImagePlacement] = []
+    var selectedImageID: UUID?
+    var isImageManagementMode: Bool = false  // true → 모든 이미지 핸들 표시
+    var pendingImageGestureSnapshot: ([ImagePlacement], UUID?)?
+    var imageResizeInitialSize: CGSize = .zero
+    var imageResizeInitialDistance: CGFloat = 0
+    private var lastImageManagementTrigger = 0
+    private var lastPhotoImportMenuTrigger = 0
+    private var lastGalleryImportTrigger = 0
+    private var lastFileImportTrigger = 0
+
     var onSingleTap: (() -> Void)?
     var onPageChanged: ((Int, Int) -> Void)?
     var onStickerSelectionChanged: ((Bool) -> Void)?
@@ -88,6 +105,40 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         }
     }
 
+    // MARK: - HID 페달 (Bluetooth Keyboard / PageFlip / AirTurn)
+    // KeyboardPageTurnInputProvider가 이벤트를 방출한다.
+    // ViewController는 키 입력을 받아 provider에 전달하는 역할만 한다.
+    var keyboardProvider: KeyboardPageTurnInputProvider?
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    override var keyCommands: [UIKeyCommand]? {
+        // iOS 13에서 discoverabilityTitle 파라미터를 받는 init이 deprecated됨.
+        // init(input:modifierFlags:action:) 후 프로퍼티로 설정한다.
+        func cmd(_ input: String, action: Selector, title: String) -> UIKeyCommand {
+            let c = UIKeyCommand(input: input, modifierFlags: [], action: action)
+            c.discoverabilityTitle = title
+            return c
+        }
+        return [
+            cmd(UIKeyCommand.inputLeftArrow,  action: #selector(handleKeyPrev), title: "이전 페이지"),
+            cmd(UIKeyCommand.inputRightArrow, action: #selector(handleKeyNext), title: "다음 페이지"),
+            cmd(UIKeyCommand.inputUpArrow,    action: #selector(handleKeyPrev), title: "이전 페이지"),
+            cmd(UIKeyCommand.inputDownArrow,  action: #selector(handleKeyNext), title: "다음 페이지"),
+            cmd(UIKeyCommand.inputPageUp,     action: #selector(handleKeyPrev), title: "이전 페이지"),
+            cmd(UIKeyCommand.inputPageDown,   action: #selector(handleKeyNext), title: "다음 페이지"),
+            cmd(" ",                          action: #selector(handleKeyNext), title: "다음 페이지"),
+        ]
+    }
+
+    @objc private func handleKeyPrev() {
+        keyboardProvider?.send(.previousPage)
+    }
+
+    @objc private func handleKeyNext() {
+        keyboardProvider?.send(.nextPage)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -98,6 +149,21 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
             pdfView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pdfView.topAnchor.constraint(equalTo: view.topAnchor),
             pdfView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+
+        // PDFKit 네이티브 썸네일 스크러버.
+        // PDFView와 자동으로 동기화되며 탭하면 해당 페이지로 이동한다.
+        thumbnailView.pdfView = pdfView
+        thumbnailView.thumbnailSize = CGSize(width: 40, height: 52)
+        thumbnailView.layoutMode = .horizontal
+        thumbnailView.backgroundColor = .clear
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(thumbnailView)
+        NSLayoutConstraint.activate([
+            thumbnailView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            thumbnailView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            thumbnailView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            thumbnailView.heightAnchor.constraint(equalToConstant: 64)
         ])
 
         pdfView.autoScales = true
@@ -130,6 +196,7 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         }
         applyEditorMode()
         applyPendingConfigurationIfNeeded()
+        becomeFirstResponder()
     }
 
     override func viewDidLayoutSubviews() {
@@ -194,8 +261,10 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         overlayViews.removeAll(keepingCapacity: true)
         stickerPlacements = ScoreFileStore.loadStickerPlacements(pieceID: pieceID)
         textPlacements = ScoreFileStore.loadTextPlacements(pieceID: pieceID)
+        imagePlacements = ScoreFileStore.loadImagePlacements(pieceID: pieceID)
         setSelectedSticker(nil)
         selectedTextBoxID = nil
+        selectedImageID = nil
         commitTextEditing()
 
         if let stored = ScoreFileStore.loadAnnotationLayersMetadata(pieceID: pieceID), !stored.layers.isEmpty {
@@ -265,18 +334,28 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         guard isEditorMode != enabled else { return }
         if isEditorMode, !enabled {
             selectedTextBoxID = nil
+            selectedImageID = nil
+            isImageManagementMode = false
             commitTextEditing()
             persistVisibleCanvases()
             persistStickerPlacements()
+            persistImagePlacements()
         }
         isEditorMode = enabled
         applyEditorMode()
     }
 
+
     func setDrawingEnabled(_ enabled: Bool) {
         guard isDrawingEnabled != enabled else { return }
         isDrawingEnabled = enabled
         applyEditorMode()
+    }
+
+    func setRulerActive(_ active: Bool) {
+        guard isRulerActive != active else { return }
+        isRulerActive = active
+        refreshAllOverlayViews()
     }
 
     func setViewerInteractionEnabled(_ enabled: Bool) {
@@ -306,6 +385,7 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
             return
         }
 
+        let wasTextMode    = currentToolMode == .text
         let wasStickerMode = currentToolMode == .sticker
         currentToolMode = tool
         currentColor = color
@@ -313,11 +393,21 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         currentOpacity = opacity
         currentEraserMode = eraserMode
         currentEraserSize = eraserSize
+
         if wasStickerMode && tool != .sticker {
             setSelectedSticker(nil)
             refreshAllOverlayViews()
             return
         }
+
+        // text 모드 진입/이탈 시 텍스트 박스의 핸들(테두리·제스처)을 재렌더링해야 한다.
+        // applyEditorMode()만으로는 rebuildTextViews()가 호출되지 않으므로
+        // refreshAllOverlayViews()를 대신 사용한다.
+        if wasTextMode || tool == .text {
+            refreshAllOverlayViews()
+            return
+        }
+
         for overlay in overlayViews.values {
             applyCurrentTool(to: overlay.canvasView)
         }
@@ -394,6 +484,7 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
         saveDrawing(for: activePageIndex)
         persistStickerPlacements()
         persistTextPlacements()
+        persistImagePlacements()
     }
 
     @objc private func handleSingleTap() {
@@ -437,6 +528,8 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     }
 
     func applyEditorMode() {
+        // 풀스크린 모드(isViewerInteractionEnabled)일 때 썸네일 숨김, 나머지는 표시
+        thumbnailView.isHidden = isViewerInteractionEnabled
         singleTapRecognizer?.isEnabled = !isEditorMode
         // 레이아웃 오프셋 없음. ScoreViewerScreen(VStack)이 PDFView 영역을 결정한다.
         // 여기서는 입력 정책(패닝, 드로잉, 스티커)만 관리한다.
@@ -451,9 +544,19 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
                 && currentToolMode != .text
             let canInteractOverlay = isEditorMode && isDrawingEnabled
                 && (currentToolMode == .sticker || currentToolMode == .text)
-            overlay.canvasView.isUserInteractionEnabled = canDrawNow
-            overlay.canvasView.drawingGestureRecognizer.isEnabled = canDrawNow
-            overlay.stickerContainerView.isUserInteractionEnabled = canInteractOverlay
+            // ruler가 활성화된 경우 canvasView 상호작용을 켜야 PKRuler가 동작한다.
+            // drawingGestureRecognizer는 ruler 중에는 꺼서 실수로 그어지는 것을 방지한다.
+            overlay.canvasView.isUserInteractionEnabled = canDrawNow || isRulerActive
+            overlay.canvasView.drawingGestureRecognizer.isEnabled = canDrawNow && !isRulerActive
+            overlay.canvasView.isRulerActive = isRulerActive
+            // 이미지가 선택됐거나 관리 모드일 때 stickerContainerView도 활성화:
+            // 빈 공간 탭이 handleStickerTap 까지 내려와 선택/모드 해제할 수 있다.
+            let stickerContainerActive = canInteractOverlay
+                || (isEditorMode && !canDrawNow && (selectedImageID != nil || isImageManagementMode))
+            overlay.stickerContainerView.isUserInteractionEnabled = stickerContainerActive
+            // 이미지: 드로잉 모드가 아닌 에디터 상태에서 항상 인터랙션 허용
+            // (도구 미선택 포함 — 사진 불러오기는 tool 변경 없이 호출됨)
+            overlay.imageContainerView.isUserInteractionEnabled = isEditorMode && !canDrawNow
         }
         if currentToolMode != .sticker {
             hideHoverGlyph()
@@ -480,15 +583,22 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     private func saveDrawing(for pageIndex: Int) {
         guard let layerID = activeLayerID else { return }
         let key = ScorePDFDrawingKey(pageIndex: pageIndex, layerID: layerID)
-        guard let drawing = overlayViews[pageIndex]?.canvasView.drawing ?? drawingCache[key] else { return }
-        persistDrawing(drawing, for: key)
+        if let overlay = overlayViews[pageIndex] {
+            // canvas space(595pt) → page space
+            let pageDrawing = scaleDrawing(overlay.canvasView.drawing, by: overlay.canvasScale)
+            persistDrawing(pageDrawing, for: key)
+        } else if let cached = drawingCache[key] {
+            persistDrawing(cached, for: key)  // 이미 page space
+        }
     }
 
     private func persistVisibleCanvases() {
         guard let layerID = activeLayerID else { return }
         for (pageIndex, overlay) in overlayViews {
             let key = ScorePDFDrawingKey(pageIndex: pageIndex, layerID: layerID)
-            persistDrawing(overlay.canvasView.drawing, for: key)
+            // canvas space(595pt) → page space
+            let pageDrawing = scaleDrawing(overlay.canvasView.drawing, by: overlay.canvasScale)
+            persistDrawing(pageDrawing, for: key)
         }
     }
 
@@ -504,6 +614,53 @@ final class ScorePDFViewController: UIViewController, PDFPageOverlayViewProvider
     func persistStickerPlacements() {
         guard let currentPieceID else { return }
         ScoreFileStore.saveStickerPlacements(stickerPlacements, pieceID: currentPieceID)
+    }
+
+    func persistImagePlacements() {
+        guard let currentPieceID else { return }
+        ScoreFileStore.saveImagePlacements(imagePlacements, pieceID: currentPieceID)
+    }
+
+    func applyImageManagementTrigger(_ trigger: Int) {
+        guard trigger != lastImageManagementTrigger else { return }
+        lastImageManagementTrigger = trigger
+        isImageManagementMode = true
+        refreshAllOverlayViews()
+    }
+
+    func applyPhotoImportMenuTrigger(_ trigger: Int) {
+        guard trigger != lastPhotoImportMenuTrigger else { return }
+        lastPhotoImportMenuTrigger = trigger
+        presentPhotoImportMenu()
+    }
+
+    private func presentPhotoImportMenu() {
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "사진 앨범", style: .default) { [weak self] _ in
+            self?.presentGalleryPicker()
+        })
+        alert.addAction(UIAlertAction(title: "파일", style: .default) { [weak self] _ in
+            self?.presentFilePicker()
+        })
+        alert.addAction(UIAlertAction(title: "취소", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.minY + 44, width: 1, height: 1)
+            popover.permittedArrowDirections = .up
+        }
+        present(alert, animated: true)
+    }
+
+    func applyGalleryImportTrigger(_ trigger: Int) {
+        guard trigger != lastGalleryImportTrigger else { return }
+        lastGalleryImportTrigger = trigger
+        presentGalleryPicker()
+    }
+
+    func applyFileImportTrigger(_ trigger: Int) {
+        guard trigger != lastFileImportTrigger else { return }
+        lastFileImportTrigger = trigger
+        presentFilePicker()
     }
 
 }

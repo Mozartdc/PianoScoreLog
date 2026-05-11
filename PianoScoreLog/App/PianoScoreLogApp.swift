@@ -16,6 +16,7 @@ struct PianoScoreLogApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Piece.self,
+            ScoreFolder.self,
             PracticeSession.self,
             PieceDailyStatus.self,
             Recording.self,

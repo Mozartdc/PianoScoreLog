@@ -6,6 +6,7 @@ import UIKit
 struct DrawingToolOptionsPopoverView: View {
     @Bindable var state: ScoreEditorState
     let tool: DrawingTool
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         switch tool {
@@ -18,6 +19,8 @@ struct DrawingToolOptionsPopoverView: View {
                             let color = recent[index]
                             Button {
                                 state.selectDrawingColor(color)
+                                // 프리셋 색상 탭 → 팝오버 즉시 닫힘, 바로 필기 가능
+                                dismiss()
                             } label: {
                                 Circle()
                                     .fill(color)
@@ -48,7 +51,7 @@ struct DrawingToolOptionsPopoverView: View {
 
                 Divider()
                 LabeledContent("굵기") {
-                    Slider(value: $state.strokeWidth, in: 1...16)
+                    Slider(value: $state.strokeWidth, in: 1...40)
                         .frame(width: 160)
                 }
                 LabeledContent("불투명도") {
@@ -57,6 +60,8 @@ struct DrawingToolOptionsPopoverView: View {
                 }
             }
             .frame(width: 280)
+            // 시스템 ColorPicker에서 색상 확정 시에도 팝오버 닫힘
+            .onChange(of: state.selectedDrawingColor) { _, _ in dismiss() }
         case .eraser:
             VStack(alignment: .leading, spacing: 14) {
                 Picker("지우기 방식", selection: $state.eraserMode) {
@@ -65,6 +70,7 @@ struct DrawingToolOptionsPopoverView: View {
                 }
                 .pickerStyle(.segmented)
                 LabeledContent("크기") {
+                    // 내부 변환: 0…1 → 4pt…80pt (applyCurrentTool 참조)
                     Slider(value: $state.eraserSize, in: 0...1)
                         .frame(width: 160)
                 }
@@ -243,6 +249,246 @@ struct StickerTrayView: View {
         }
     }
 }
+/// 핸즈프리 페이지 넘김 설정 팝오버.
+/// preferredContentSize 고정 (sizingOptions 미사용) — @Observable 피드백 루프 방지.
+struct HandsFreeSettingsView: View {
+    @Bindable var manager: PageTurnManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+
+            // ── 활성화 토글 ──────────────────────────────
+            Toggle(isOn: $manager.isEnabled) {
+                Label("핸즈프리 페이지 넘김", systemImage: "hand.wave")
+                    .font(.subheadline.weight(.medium))
+            }
+            .tint(.accentColor)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            // ── 입력 방식 ────────────────────────────────
+            VStack(alignment: .leading, spacing: 10) {
+                Text("입력 방식")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 6) {
+                    ForEach(PageTurnInputSource.allCases) { src in
+                        SourceSegmentButton(
+                            source: src,
+                            isSelected: manager.activeSource == src
+                        ) { manager.activeSource = src }
+                    }
+                }
+                .disabled(!manager.isEnabled)
+
+                if manager.isEnabled {
+                    supportBadge(for: manager.activeSource)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
+            Divider()
+
+            // ── 방식별 세부 설정 ─────────────────────────
+            Group {
+                switch manager.activeSource {
+                case .faceGesture:
+                    faceGestureSection
+                case .airPodsHeadGesture:
+                    airPodsSection
+                case .bluetoothPedal:
+                    bluetoothSection
+                }
+            }
+            .disabled(!manager.isEnabled)
+        }
+    }
+
+    // MARK: - Face Gesture
+
+    private var faceGestureSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("제스처 종류")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                ForEach(FaceGestureKind.allCases) { kind in
+                    GestureKindSegmentButton(
+                        kind: kind,
+                        isSelected: manager.faceGestureKind == kind
+                    ) { manager.faceGestureKind = kind }
+                }
+            }
+
+            Text(manager.faceGestureKind.hint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            sensitivityRow
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - AirPods
+
+    private var airPodsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("고개를 왼쪽/오른쪽으로 돌려 페이지를 넘깁니다.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            sensitivityRow
+
+            Button {
+                manager.recalibrate()
+            } label: {
+                Label("현재 위치로 캘리브레이션", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.footnote)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Bluetooth
+
+    private var bluetoothSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Bluetooth 페달 연결", systemImage: "cable.connector.horizontal")
+                .font(.footnote.weight(.medium))
+            Text("PageFlip · AirTurn 등 HID 방식 페달은\niOS 설정 앱에서 블루투스 페어링만 하면\n별도 설정 없이 자동 인식됩니다.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - Shared
+
+    private var sensitivityRow: some View {
+        LabeledContent("감도") {
+            Slider(value: $manager.sensitivity, in: 0.3...1.0)
+                .frame(width: 130)
+        }
+        .font(.footnote)
+    }
+
+    @ViewBuilder
+    private func supportBadge(for source: PageTurnInputSource) -> some View {
+        let supported: Bool = {
+            switch source {
+            case .faceGesture:        return manager.faceProvider.isSupported
+            case .airPodsHeadGesture: return manager.airPodsProvider.isSupported
+            case .bluetoothPedal:     return true
+            }
+        }()
+        Label(
+            supported ? "이 기기에서 지원됩니다" : "이 기기에서 지원되지 않습니다",
+            systemImage: supported ? "checkmark.circle" : "exclamationmark.triangle"
+        )
+        .font(.caption)
+        .foregroundStyle(supported ? Color.green : Color.orange)
+    }
+}
+
+// MARK: - Source Segment Button
+
+private struct SourceSegmentButton: View {
+    let source: PageTurnInputSource
+    let isSelected: Bool
+    let action: () -> Void
+
+    private var symbol: String {
+        switch source {
+        case .faceGesture:        return "faceid"
+        case .airPodsHeadGesture: return "airpods"
+        case .bluetoothPedal:     return "cable.connector.horizontal"
+        }
+    }
+
+    private var shortLabel: String {
+        switch source {
+        case .faceGesture:        return "얼굴"
+        case .airPodsHeadGesture: return "AirPods"
+        case .bluetoothPedal:     return "페달"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.title3)
+                Text(shortLabel)
+                    .font(.caption)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected
+                          ? Color.accentColor.opacity(0.12)
+                          : Color(uiColor: .tertiarySystemFill))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+            )
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Gesture Kind Segment Button
+
+private struct GestureKindSegmentButton: View {
+    let kind: FaceGestureKind
+    let isSelected: Bool
+    let action: () -> Void
+
+    private var symbol: String {
+        switch kind {
+        case .wink: return "eye"
+        case .lips: return "mouth"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.body)
+                Text(kind.rawValue)
+                    .font(.subheadline)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected
+                          ? Color.accentColor.opacity(0.12)
+                          : Color(uiColor: .tertiarySystemFill))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+            )
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct PageJumpPopoverView: View {
     let currentPage: Int
     let totalPages: Int

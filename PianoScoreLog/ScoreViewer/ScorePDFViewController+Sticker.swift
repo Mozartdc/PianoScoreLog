@@ -83,6 +83,15 @@ extension ScorePDFViewController {
             handleTextTap(recognizer)
             return
         }
+
+        // 이미지가 선택됐거나 관리 모드 상태에서 빈 공간 탭하면 선택/모드 해제
+        if selectedImageID != nil || isImageManagementMode {
+            selectedImageID = nil
+            isImageManagementMode = false
+            refreshAllOverlayViews()
+            return
+        }
+
         guard currentToolMode == .sticker else { return }
         guard isEditorMode && isDrawingEnabled else { return }
         guard let container = recognizer.view else { return }
@@ -394,16 +403,28 @@ extension ScorePDFViewController {
     }
 
     func applyCurrentTool(to canvas: PKCanvasView) {
+        // 악보는 항상 흰 배경이므로 색상을 라이트 모드 기준으로 고정한다.
+        // 다크 모드에서도 사용자가 선택한 색상 그대로 필기되어야 한다.
+        let fixedColor = currentColor
+            .resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+            .withAlphaComponent(currentOpacity)
+
         switch currentToolMode {
         case .pen:
-            canvas.tool = PKInkingTool(.pen, color: currentColor.withAlphaComponent(currentOpacity), width: currentWidth)
+            canvas.tool = PKInkingTool(.pen, color: fixedColor, width: currentWidth)
         case .pencil:
-            canvas.tool = PKInkingTool(.pencil, color: currentColor.withAlphaComponent(currentOpacity), width: currentWidth)
+            canvas.tool = PKInkingTool(.pencil, color: fixedColor, width: currentWidth)
         case .marker:
-            canvas.tool = PKInkingTool(.marker, color: currentColor.withAlphaComponent(currentOpacity), width: max(3, currentWidth + 1))
+            canvas.tool = PKInkingTool(.marker, color: fixedColor, width: max(3, currentWidth + 1))
         case .eraser:
-            canvas.tool = PKEraserTool(currentEraserMode == .bitmap ? .bitmap : .vector)
-            _ = currentEraserSize
+            // eraserSize: 0…1 → 4pt…80pt
+            let eraserWidth = 4 + currentEraserSize * 76
+            if #available(iOS 16.4, *) {
+                canvas.tool = PKEraserTool(currentEraserMode == .bitmap ? .bitmap : .vector,
+                                           width: eraserWidth)
+            } else {
+                canvas.tool = PKEraserTool(currentEraserMode == .bitmap ? .bitmap : .vector)
+            }
         case .sticker, .text:
             break
         }

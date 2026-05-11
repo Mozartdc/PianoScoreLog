@@ -98,8 +98,10 @@ extension ScorePDFViewController {
         let containerWidth = container.bounds.width
         let boxWidth = containerWidth * 0.4
         let boxX = max(0, min(location.x - boxWidth / 2, containerWidth - boxWidth))
-        // Height = one line of the default 14pt font + top/bottom insets (4+4)
-        let oneLineHeight = ceil(UIFont.systemFont(ofSize: 14).lineHeight) + 8
+        // 기본 폰트 크기를 페이지 너비에 비례해 스케일링한다.
+        // 스캔 해상도에 따라 canvas bounds가 달라져도 화면상 크기가 일정하게 보인다.
+        let defaultFontSize = 14 * containerWidth / kTextToolReferencePageWidth
+        let oneLineHeight = ceil(UIFont.systemFont(ofSize: defaultFontSize).lineHeight) + 8
         let boxY = location.y - oneLineHeight / 2
         let initialFrame = CGRect(x: boxX, y: boxY, width: boxWidth, height: oneLineHeight)
 
@@ -108,7 +110,8 @@ extension ScorePDFViewController {
             layerID: layerID,
             normalizedX: Double((boxX + boxWidth / 2) / containerWidth),
             normalizedY: Double((boxY + oneLineHeight / 2) / container.bounds.height),
-            normalizedWidth: Double(boxWidth / containerWidth)
+            normalizedWidth: Double(boxWidth / containerWidth),
+            creationPageWidth: Double(containerWidth)
         )
 
         selectedTextBoxID = nil
@@ -171,10 +174,18 @@ extension ScorePDFViewController {
         boxView.textView.isSelectable = true
         boxView.textView.allowsEditingTextAttributes = true
         boxView.textView.delegate = self
-        boxView.textView.font = .systemFont(ofSize: 14)
+        // creationPageWidth가 있으면 그 기준으로 저장된 폰트 그대로 사용한다.
+        // 없으면(구버전 데이터) 14pt 기본값.
+        let editFontSize: CGFloat
+        if let cpw = placement.creationPageWidth, cpw > 0 {
+            editFontSize = 14 * CGFloat(cpw) / kTextToolReferencePageWidth
+        } else {
+            editFontSize = 14
+        }
+        boxView.textView.font = .systemFont(ofSize: editFontSize)
         boxView.textView.textColor = .black
         boxView.textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 14),
+            .font: UIFont.systemFont(ofSize: editFontSize),
             .foregroundColor: UIColor.black
         ]
         return boxView
@@ -348,6 +359,10 @@ extension ScorePDFViewController {
                 textPlacements.append(updated)
             }
         }
+
+        // 텍스트가 있으면 커밋 직후 자동 선택 → 핸들이 바로 나타난다.
+        // 빈 텍스트는 삭제됐으므로 선택 해제.
+        selectedTextBoxID = plainText.isEmpty ? nil : placement.id
 
         persistTextPlacements()
         if let overlay = overlayViews[pageIndex] {

@@ -15,9 +15,21 @@ struct ScorePDFDrawingKey: Hashable {
     let layerID: UUID
 }
 
+/// imageContainerView 전용 패스스루 뷰.
+/// 이미지 서브뷰가 없는 빈 영역의 터치는 nil을 반환해
+/// 아래에 위치한 stickerContainerView 로 전달한다.
+final class ScorePDFImageContainerView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let result = super.hitTest(point, with: event)
+        return result === self ? nil : result
+    }
+}
+
 final class ScorePDFLayeredPageOverlayView: UIView {
     let passiveImageView = UIImageView()
     let stickerContainerView = UIView()
+    /// stickerContainerView 위에 위치. 패스스루 뷰라서 이미지가 없는 영역은 sticker 레이어로 통과한다.
+    let imageContainerView = ScorePDFImageContainerView()
     let canvasView = PKCanvasView()
 
     /// 서브뷰(PKCanvasView, stickerContainerView)가 터치를 처리하지 않으면
@@ -30,6 +42,11 @@ final class ScorePDFLayeredPageOverlayView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // Z-order (bottom → top):
+        // passiveImageView → stickerContainerView → canvasView → imageContainerView(passthrough)
+        // imageContainerView가 canvasView 위에 있어야
+        // "도구 미선택 / sticker / text" 모드에서 이미지를 터치할 수 있다.
+        // 드로잉 모드에서는 isUserInteractionEnabled = false로 canvasView에 터치를 넘긴다.
         passiveImageView.translatesAutoresizingMaskIntoConstraints = false
         passiveImageView.contentMode = .scaleToFill
         passiveImageView.isUserInteractionEnabled = false
@@ -40,8 +57,15 @@ final class ScorePDFLayeredPageOverlayView: UIView {
         stickerContainerView.backgroundColor = .clear
         addSubview(stickerContainerView)
 
-        canvasView.translatesAutoresizingMaskIntoConstraints = false
+        // canvasView는 수동 레이아웃: layoutSubviews에서 bounds를 정규화하고 transform을 적용한다.
+        canvasView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(canvasView)
+
+        // 패스스루 컨테이너는 canvasView 위에 배치
+        imageContainerView.translatesAutoresizingMaskIntoConstraints = false
+        imageContainerView.isUserInteractionEnabled = false   // 초기값: 비활성
+        imageContainerView.backgroundColor = .clear
+        addSubview(imageContainerView)
 
         NSLayoutConstraint.activate([
             passiveImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -52,11 +76,30 @@ final class ScorePDFLayeredPageOverlayView: UIView {
             stickerContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             stickerContainerView.topAnchor.constraint(equalTo: topAnchor),
             stickerContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            canvasView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            canvasView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            canvasView.topAnchor.constraint(equalTo: topAnchor),
-            canvasView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            imageContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageContainerView.topAnchor.constraint(equalTo: topAnchor),
+            imageContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    /// 페이지 실제 폭 / 기준 폭(595pt). 캔버스를 항상 595pt 좌표계로 정규화하기 위해 사용.
+    var canvasScale: CGFloat {
+        bounds.width > 0 ? bounds.width / kTextToolReferencePageWidth : 1.0
+    }
+
+    /// canvasView를 항상 595×(비례 높이) pt 논리 공간으로 설정하고
+    /// scale transform으로 overlay 전체를 채운다.
+    /// PKRuler는 이 595pt 공간에서 동작하므로 PDF 해상도와 무관하게 일정한 크기로 표시된다.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let scale = canvasScale
+        let normalizedWidth: CGFloat  = kTextToolReferencePageWidth
+        let normalizedHeight: CGFloat = bounds.height / scale
+        canvasView.bounds = CGRect(x: 0, y: 0, width: normalizedWidth, height: normalizedHeight)
+        canvasView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        canvasView.transform = CGAffineTransform(scaleX: scale, y: scale)
     }
 
     @available(*, unavailable)
@@ -159,6 +202,67 @@ final class ScorePDFTextResizeHandleView: UIView {
     }
 
     /// Expand hit area so thin handles are easy to grab.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -10, dy: -10).contains(point)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+final class ScorePDFImageView: UIView {
+    let imageID: UUID
+    let imageView: UIImageView
+
+    init(imageID: UUID) {
+        self.imageID = imageID
+        self.imageView = UIImageView()
+        super.init(frame: .zero)
+        isUserInteractionEnabled = true
+        backgroundColor = .clear
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+final class ScorePDFImageDeleteButton: UIButton {
+    let imageID: UUID
+
+    init(imageID: UUID) {
+        self.imageID = imageID
+        super.init(frame: .zero)
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -10, dy: -10).contains(point)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+final class ScorePDFImageResizeHandleView: UIView {
+    let imageID: UUID
+
+    init(imageID: UUID) {
+        self.imageID = imageID
+        super.init(frame: .zero)
+        isUserInteractionEnabled = true
+        backgroundColor = .systemBlue
+        layer.cornerRadius = 6
+    }
+
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         bounds.insetBy(dx: -10, dy: -10).contains(point)
     }

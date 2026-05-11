@@ -18,6 +18,14 @@ extension ScorePDFViewController {
         canvas.drawingPolicy = .pencilOnly
         canvas.isScrollEnabled = false
         canvas.drawingGestureRecognizer.cancelsTouchesInView = false
+        // 중복 등록 방지 후 재등록: 드로잉 시작 시 팝오버 자동 닫힘 알림 전송
+        canvas.drawingGestureRecognizer.removeTarget(self, action: #selector(handleCanvasDrawingGestureState(_:)))
+        canvas.drawingGestureRecognizer.addTarget(self, action: #selector(handleCanvasDrawingGestureState(_:)))
+    }
+
+    @objc func handleCanvasDrawingGestureState(_ recognizer: UIGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        NotificationCenter.default.post(name: .scoreCanvasDrawingGestureBegan, object: nil)
     }
 
     private func configureStickerTapGesture(_ overlay: ScorePDFLayeredPageOverlayView) {
@@ -72,10 +80,14 @@ extension ScorePDFViewController {
     }
 
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        guard !isSettingDrawingProgrammatically else { return }
         guard let layerID = activeLayerID,
               let pageIndex = pageIndex(for: canvasView) else { return }
+        guard let overlay = overlayViews[pageIndex] else { return }
         let key = ScorePDFDrawingKey(pageIndex: pageIndex, layerID: layerID)
-        persistDrawing(canvasView.drawing, for: key)
+        // canvas space(595pt) → page space
+        let pageDrawing = scaleDrawing(canvasView.drawing, by: overlay.canvasScale)
+        persistDrawing(pageDrawing, for: key)
     }
 
     private func drawing(for pageIndex: Int, layerID: UUID) -> PKDrawing {
@@ -118,6 +130,94 @@ extension ScorePDFViewController {
             }
         }
         overlay.passiveImageView.image = image
+    }
+
+    func rebuildImageViews(for pageIndex: Int, overlay: ScorePDFLayeredPageOverlayView) {
+        let container = overlay.imageContainerView
+        let bounds = container.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return }
+
+        container.subviews.forEach { $0.removeFromSuperview() }
+
+        let visibleLayerIDs = Set(annotationLayers.filter(\.isVisible).map(\.id))
+        let images = imagePlacements.filter {
+            $0.pageIndex == pageIndex && visibleLayerIDs.contains($0.layerID)
+        }
+
+        // Pass 1 — add all image views
+        for placement in images {
+            let imgView = ScorePDFImageView(imageID: placement.id)
+            if let pieceID = currentPieceID {
+                imgView.imageView.image = ScoreFileStore.loadImageFile(
+                    filename: placement.imageFilename, pieceID: pieceID
+                )
+            }
+            let w = CGFloat(placement.normalizedWidth) * bounds.width
+            let h = CGFloat(placement.normalizedHeight) * bounds.height
+            let cx = CGFloat(placement.normalizedX) * bounds.width
+            let cy = CGFloat(placement.normalizedY) * bounds.height
+            imgView.frame = CGRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
+
+            if placement.id == selectedImageID {
+                imgView.layer.borderColor = UIColor.systemBlue.cgColor
+                imgView.layer.borderWidth = 1
+                imgView.layer.cornerRadius = 2
+                if isEditorMode {
+                    let pan = UIPanGestureRecognizer(target: self, action: #selector(handleImagePan(_:)))
+                    pan.cancelsTouchesInView = false
+                    imgView.addGestureRecognizer(pan)
+                }
+            }
+
+            if isEditorMode {
+                let tap = UITapGestureRecognizer(target: self, action: #selector(handleImageTap(_:)))
+                tap.cancelsTouchesInView = false
+                imgView.addGestureRecognizer(tap)
+            }
+
+            container.addSubview(imgView)
+        }
+
+        // Pass 2 — add accessories for selected image, or all images in management mode
+        let accessoryTargetIDs: [UUID]
+        if isImageManagementMode && selectedImageID == nil {
+            // 관리 모드: 현재 페이지의 모든 이미지에 핸들 표시
+            accessoryTargetIDs = images.map(\.id)
+        } else if let selectedID = selectedImageID {
+            accessoryTargetIDs = [selectedID]
+        } else {
+            accessoryTargetIDs = []
+        }
+
+        if isEditorMode && !accessoryTargetIDs.isEmpty {
+            let xConfig = UIImage.SymbolConfiguration(pointSize: 6, weight: .bold)
+            for targetID in accessoryTargetIDs {
+                guard let imgView = container.subviews
+                    .compactMap({ $0 as? ScorePDFImageView })
+                    .first(where: { $0.imageID == targetID }) else { continue }
+
+                let deleteBtn = ScorePDFImageDeleteButton(imageID: targetID)
+                deleteBtn.setImage(UIImage(systemName: "xmark", withConfiguration: xConfig), for: .normal)
+                deleteBtn.tintColor = .white
+                deleteBtn.backgroundColor = .systemRed
+                deleteBtn.layer.cornerRadius = 7
+                deleteBtn.clipsToBounds = true
+                deleteBtn.frame = CGRect(
+                    x: imgView.frame.maxX - 7, y: imgView.frame.minY - 7, width: 14, height: 14
+                )
+                deleteBtn.addTarget(self, action: #selector(handleImageDeleteButtonTap(_:)), for: .touchUpInside)
+                container.addSubview(deleteBtn)
+
+                let resizeHandle = ScorePDFImageResizeHandleView(imageID: targetID)
+                resizeHandle.frame = CGRect(
+                    x: imgView.frame.maxX - 6, y: imgView.frame.maxY - 6, width: 12, height: 12
+                )
+                let resizePan = UIPanGestureRecognizer(target: self, action: #selector(handleImageResizeHandlePan(_:)))
+                resizePan.cancelsTouchesInView = true
+                resizeHandle.addGestureRecognizer(resizePan)
+                container.addSubview(resizeHandle)
+            }
+        }
     }
 
     func rebuildStickerViews(for pageIndex: Int, overlay: ScorePDFLayeredPageOverlayView) {
@@ -245,6 +345,8 @@ extension ScorePDFViewController {
         var selectedText: TextPlacement? = nil
         var selectedBoxFrame: CGRect = .zero
 
+        let inTextToolMode = isEditorMode && isDrawingEnabled && currentToolMode == .text
+
         for text in textPlacements where text.pageIndex == pageIndex && visibleLayerIDs.contains(text.layerID) {
             if text.id == editingID { continue }
 
@@ -253,12 +355,19 @@ extension ScorePDFViewController {
             let boxWidth = text.normalizedWidth * bounds.width
 
             if !text.rtfData.isEmpty,
-               let attributed = try? NSAttributedString(
+               let rawAttr = try? NSAttributedString(
                    data: text.rtfData,
                    options: [.documentType: NSAttributedString.DocumentType.rtf],
                    documentAttributes: nil
                ) {
-                boxView.textView.attributedText = attributed
+                // creationPageWidth가 있으면 현재 캔버스 폭 기준으로 폰트를 스케일링한다.
+                // 없으면(구버전 데이터) 스케일 없이 그대로 표시한다.
+                let displayAttr = scaledAttributedString(
+                    rawAttr,
+                    creationPageWidth: text.creationPageWidth,
+                    currentPageWidth: bounds.width
+                )
+                boxView.textView.attributedText = displayAttr
             }
 
             let fittingHeight = boxView.textView.sizeThatFits(
@@ -273,13 +382,22 @@ extension ScorePDFViewController {
             )
 
             if isSelected {
+                // 선택됨: 파란 테두리 + 이동 제스처 + 악세서리(resize/delete)는 Pass 2에서 추가
                 boxView.layer.borderColor = UIColor.systemBlue.cgColor
-                boxView.layer.borderWidth = 0.5
+                boxView.layer.borderWidth = 1
                 let pan = UIPanGestureRecognizer(target: self, action: #selector(handleTextBoxPan(_:)))
                 pan.cancelsTouchesInView = false
                 boxView.addGestureRecognizer(pan)
                 selectedText = text
                 selectedBoxFrame = boxView.frame
+            } else if inTextToolMode {
+                // 텍스트 툴 활성 중 비선택 텍스트:
+                // 파란 반투명 테두리로 "핸들 활성" 상태 표시 + 드래그 이동 허용
+                boxView.layer.borderColor = UIColor.systemBlue.withAlphaComponent(0.4).cgColor
+                boxView.layer.borderWidth = 1
+                let pan = UIPanGestureRecognizer(target: self, action: #selector(handleTextBoxPan(_:)))
+                pan.cancelsTouchesInView = false
+                boxView.addGestureRecognizer(pan)
             }
 
             let tap = UITapGestureRecognizer(target: self, action: #selector(handleTextBoxTap(_:)))
@@ -334,17 +452,25 @@ extension ScorePDFViewController {
         guard let activeLayerID else {
             overlay.canvasView.drawing = PKDrawing()
             overlay.passiveImageView.image = nil
+            rebuildImageViews(for: pageIndex, overlay: overlay)
             rebuildStickerViews(for: pageIndex, overlay: overlay)
             overlay.isUserInteractionEnabled = true   // hitTest 패스스루로 실질적 통과
             overlay.canvasView.isUserInteractionEnabled = false
             overlay.canvasView.drawingGestureRecognizer.isEnabled = false
             overlay.stickerContainerView.isUserInteractionEnabled = false
+            overlay.imageContainerView.isUserInteractionEnabled = false
             return
         }
         let activeLayerVisible = annotationLayers.first(where: { $0.id == activeLayerID })?.isVisible ?? false
         overlay.canvasView.delegate = self
-        overlay.canvasView.drawing = activeLayerVisible ? drawing(for: pageIndex, layerID: activeLayerID) : PKDrawing()
+        let rawDrawing = activeLayerVisible ? drawing(for: pageIndex, layerID: activeLayerID) : PKDrawing()
+        // page space → canvas space(595pt). bounds가 아직 0이면 canvasScale=1 → no-op.
+        // willDisplayOverlayView에서 bounds 확정 후 다시 호출되므로 임시 상태는 무방하다.
+        isSettingDrawingProgrammatically = true
+        overlay.canvasView.drawing = scaleDrawing(rawDrawing, by: 1.0 / overlay.canvasScale)
+        isSettingDrawingProgrammatically = false
         rebuildPassiveImage(for: pageIndex, overlay: overlay)
+        rebuildImageViews(for: pageIndex, overlay: overlay)
         rebuildStickerViews(for: pageIndex, overlay: overlay)
         rebuildTextViews(for: pageIndex, overlay: overlay)
         applyCurrentTool(to: overlay.canvasView)
@@ -354,9 +480,13 @@ extension ScorePDFViewController {
             && currentToolMode != .sticker && currentToolMode != .text
         let canInteractOverlay = isEditorMode && isDrawingEnabled
             && (currentToolMode == .sticker || currentToolMode == .text)
-        overlay.canvasView.isUserInteractionEnabled = canDrawNow
-        overlay.canvasView.drawingGestureRecognizer.isEnabled = canDrawNow
-        overlay.stickerContainerView.isUserInteractionEnabled = canInteractOverlay
+        overlay.canvasView.isUserInteractionEnabled = canDrawNow || isRulerActive
+        overlay.canvasView.drawingGestureRecognizer.isEnabled = canDrawNow && !isRulerActive
+        overlay.canvasView.isRulerActive = isRulerActive
+        let stickerContainerActive = canInteractOverlay
+            || (isEditorMode && !canDrawNow && (selectedImageID != nil || isImageManagementMode))
+        overlay.stickerContainerView.isUserInteractionEnabled = stickerContainerActive
+        overlay.imageContainerView.isUserInteractionEnabled = isEditorMode && !canDrawNow
     }
 
     func refreshAllOverlayViews() {
@@ -397,6 +527,8 @@ extension ScorePDFViewController {
         overlayViews[pageIndex] = overlay
         configureCanvasGestureTouchTypes(overlay.canvasView)
         configureStickerTapGesture(overlay)
+        // layoutIfNeeded로 bounds를 확정한 뒤 refresh해야 canvasScale이 정확하다.
+        overlay.layoutIfNeeded()
         refreshOverlayView(overlay, pageIndex: pageIndex)
         DispatchQueue.main.async { [weak self, weak overlay] in
             guard let self, let overlay else { return }
@@ -415,7 +547,9 @@ extension ScorePDFViewController {
 
         if let activeLayerID {
             let key = ScorePDFDrawingKey(pageIndex: pageIndex, layerID: activeLayerID)
-            persistDrawing(overlay.canvasView.drawing, for: key)
+            // canvas space(595pt) → page space
+            let pageDrawing = scaleDrawing(overlay.canvasView.drawing, by: overlay.canvasScale)
+            persistDrawing(pageDrawing, for: key)
         }
         if hoverGlyphContainer === overlay.stickerContainerView {
             hideHoverGlyph()

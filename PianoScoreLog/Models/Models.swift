@@ -1,6 +1,23 @@
 import Foundation
 import SwiftData
 
+// MARK: - ScoreFolder
+
+@Model
+final class ScoreFolder {
+    @Attribute(.unique) var id: UUID
+    var name: String
+    var createdAt: Date
+
+    init(name: String) {
+        self.id       = UUID()
+        self.name     = name
+        self.createdAt = .now
+    }
+}
+
+// MARK: - Piece
+
 @Model
 final class Piece {
     @Attribute(.unique) var id: UUID
@@ -14,6 +31,8 @@ final class Piece {
     var lastViewedPage: Int
     var createdAt: Date
     var completedAt: Date?
+    /// 소속 폴더. nil = 미분류.
+    var folderID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -26,7 +45,8 @@ final class Piece {
         lastOpenedAt: Date? = nil,
         lastViewedPage: Int = 0,
         createdAt: Date = .now,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        folderID: UUID? = nil
     ) {
         self.id = id
         self.title = title
@@ -39,6 +59,7 @@ final class Piece {
         self.lastViewedPage = lastViewedPage
         self.createdAt = createdAt
         self.completedAt = completedAt
+        self.folderID = folderID
     }
 }
 

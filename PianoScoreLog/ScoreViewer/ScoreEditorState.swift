@@ -87,6 +87,9 @@ struct TextPlacement: Codable, Identifiable, Equatable {
     var normalizedX: Double   // center
     var normalizedY: Double   // center
     var normalizedWidth: Double
+    /// PDFPageOverlayView의 bounds.width (PDF 포인트 단위).
+    /// nil인 경우 기존 데이터로 간주하여 폰트 스케일링을 적용하지 않는다.
+    var creationPageWidth: Double?
     var rtfData: Data         // NSAttributedString as RTF
 
     init(
@@ -96,6 +99,7 @@ struct TextPlacement: Codable, Identifiable, Equatable {
         normalizedX: Double,
         normalizedY: Double,
         normalizedWidth: Double = 0.4,
+        creationPageWidth: Double? = nil,
         rtfData: Data = Data()
     ) {
         self.id = id
@@ -104,7 +108,39 @@ struct TextPlacement: Codable, Identifiable, Equatable {
         self.normalizedX = normalizedX
         self.normalizedY = normalizedY
         self.normalizedWidth = normalizedWidth
+        self.creationPageWidth = creationPageWidth
         self.rtfData = rtfData
+    }
+}
+
+struct ImagePlacement: Codable, Identifiable, Equatable {
+    let id: UUID
+    var pageIndex: Int
+    var layerID: UUID
+    var normalizedX: Double     // center
+    var normalizedY: Double     // center
+    var normalizedWidth: Double
+    var normalizedHeight: Double
+    var imageFilename: String   // filename inside pieces/<pieceID>/images/
+
+    init(
+        id: UUID = UUID(),
+        pageIndex: Int,
+        layerID: UUID,
+        normalizedX: Double,
+        normalizedY: Double,
+        normalizedWidth: Double,
+        normalizedHeight: Double,
+        imageFilename: String
+    ) {
+        self.id = id
+        self.pageIndex = pageIndex
+        self.layerID = layerID
+        self.normalizedX = normalizedX
+        self.normalizedY = normalizedY
+        self.normalizedWidth = normalizedWidth
+        self.normalizedHeight = normalizedHeight
+        self.imageFilename = imageFilename
     }
 }
 
@@ -166,6 +202,10 @@ final class ScoreEditorState {
     var eraserMode: EraserMode = .bitmap
 #endif
     var eraserSize: CGFloat = 0.5
+    var imageManagementTrigger: Int = 0  // 메뉴 열릴 때 핸들 전체 표시
+    var photoImportMenuTrigger: Int = 0  // 소스 선택창 (ScorePDFViewController가 처리)
+    var galleryImportTrigger: Int = 0   // 사진 앨범
+    var fileImportTrigger: Int = 0      // 파일
     var undoTrigger: Int = 0
     var redoTrigger: Int = 0
     var prevPageTrigger: Int = 0
@@ -175,6 +215,7 @@ final class ScoreEditorState {
     var currentPageIndex: Int = 0
     var pageCount: Int = 0
     var isLayerPanelPresented: Bool = false
+    var isRulerActive: Bool = false
     var annotationLayers: [AnnotationLayer] = [AnnotationLayer(name: "레이어 1", isVisible: true)]
     var activeLayerID: UUID? = nil
     private var recentColorEntries: [RGBAColor] = []
@@ -331,6 +372,7 @@ final class ScoreEditorState {
         isEditorMode = false
         isFullScreenMode = false
         activeDrawingTool = nil
+        isRulerActive = false
         hasSelectedSticker = false
         undoTrigger = 0
         redoTrigger = 0
@@ -343,6 +385,12 @@ final class ScoreEditorState {
         isLayerPanelPresented = false
         annotationLayers = [AnnotationLayer(name: "레이어 1", isVisible: true)]
         activeLayerID = annotationLayers.first?.id
+        // 이전 악보에서 발화된 트리거가 새 컨트롤러에 재전달되지 않도록 초기화
+        imageManagementTrigger = 0
+        photoImportMenuTrigger = 0
+        galleryImportTrigger = 0
+        fileImportTrigger = 0
+        deleteStickerTrigger = 0
     }
 
     private func loadRecentColors() {
