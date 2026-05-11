@@ -260,18 +260,18 @@ struct HandsFreeSettingsView: View {
             // ── 활성화 토글 ──────────────────────────────
             Toggle(isOn: $manager.isEnabled) {
                 Label("핸즈프리 페이지 넘김", systemImage: "hand.wave")
-                    .font(.subheadline.weight(.medium))
+                    .font(.body.weight(.semibold))
             }
             .tint(.accentColor)
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
 
             Divider()
 
             // ── 입력 방식 ────────────────────────────────
             VStack(alignment: .leading, spacing: 10) {
                 Text("입력 방식")
-                    .font(.footnote)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 6) {
@@ -311,9 +311,9 @@ struct HandsFreeSettingsView: View {
     // MARK: - Face Gesture
 
     private var faceGestureSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("제스처 종류")
-                .font(.footnote)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 6) {
@@ -326,21 +326,21 @@ struct HandsFreeSettingsView: View {
             }
 
             Text(manager.faceGestureKind.hint)
-                .font(.footnote)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             sensitivityRow
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
     }
 
     // MARK: - AirPods
 
     private var airPodsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("고개를 왼쪽/오른쪽으로 돌려 페이지를 넘깁니다.")
-                .font(.footnote)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             sensitivityRow
@@ -349,27 +349,26 @@ struct HandsFreeSettingsView: View {
                 manager.recalibrate()
             } label: {
                 Label("현재 위치로 캘리브레이션", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.footnote)
             }
             .buttonStyle(.bordered)
-            .controlSize(.small)
+            .controlSize(.regular)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Bluetooth
 
     private var bluetoothSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Label("Bluetooth 페달 연결", systemImage: "cable.connector.horizontal")
-                .font(.footnote.weight(.medium))
+                .font(.subheadline.weight(.semibold))
             Text("PageFlip · AirTurn 등 HID 방식 페달은\niOS 설정 앱에서 블루투스 페어링만 하면\n별도 설정 없이 자동 인식됩니다.")
-                .font(.footnote)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Shared
@@ -377,9 +376,9 @@ struct HandsFreeSettingsView: View {
     private var sensitivityRow: some View {
         LabeledContent("감도") {
             Slider(value: $manager.sensitivity, in: 0.3...1.0)
-                .frame(width: 130)
+                .frame(width: 140)
         }
-        .font(.footnote)
+        .font(.subheadline)
     }
 
     @ViewBuilder
@@ -395,7 +394,7 @@ struct HandsFreeSettingsView: View {
             supported ? "이 기기에서 지원됩니다" : "이 기기에서 지원되지 않습니다",
             systemImage: supported ? "checkmark.circle" : "exclamationmark.triangle"
         )
-        .font(.caption)
+        .font(.footnote)
         .foregroundStyle(supported ? Color.green : Color.orange)
     }
 }
@@ -425,25 +424,31 @@ private struct SourceSegmentButton: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 5) {
+            VStack(spacing: 6) {
                 Image(systemName: symbol)
-                    .font(.title3)
+                    .font(.system(size: 30))
                 Text(shortLabel)
-                    .font(.caption)
+                    .font(.footnote)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(isSelected
-                          ? Color.accentColor.opacity(0.12)
-                          : Color(uiColor: .tertiarySystemFill))
+                          ? Color(uiColor: .systemBackground)
+                          : Color(uiColor: .secondarySystemFill))
+                    .shadow(color: isSelected ? Color.black.opacity(0.12) : Color.clear,
+                            radius: 3, x: 0, y: 1)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected
+                            ? Color(uiColor: .separator)
+                            : Color.clear,
+                            lineWidth: 1)
             )
-            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .foregroundStyle(Color.primary)
+            .fontWeight(isSelected ? .semibold : .regular)
         }
         .buttonStyle(.plain)
     }
@@ -467,23 +472,29 @@ private struct GestureKindSegmentButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: symbol)
-                    .font(.body)
+                    .font(.title3)
                 Text(kind.rawValue)
-                    .font(.subheadline)
+                    .font(.body)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
+            .padding(.vertical, 11)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(isSelected
-                          ? Color.accentColor.opacity(0.12)
-                          : Color(uiColor: .tertiarySystemFill))
+                          ? Color(uiColor: .systemBackground)
+                          : Color(uiColor: .secondarySystemFill))
+                    .shadow(color: isSelected ? Color.black.opacity(0.12) : Color.clear,
+                            radius: 3, x: 0, y: 1)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected
+                            ? Color(uiColor: .separator)
+                            : Color.clear,
+                            lineWidth: 1)
             )
-            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .foregroundStyle(Color.primary)
+            .fontWeight(isSelected ? .semibold : .regular)
         }
         .buttonStyle(.plain)
     }

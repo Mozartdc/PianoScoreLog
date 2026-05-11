@@ -120,7 +120,7 @@ struct LibraryRootView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: []) {
                 // 폴더 그리드 — 루트에서만, 폴더가 있을 때만
                 if currentFolder == nil && !allFolders.isEmpty {
                     folderGridSection
@@ -471,9 +471,10 @@ struct PieceLibraryRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "doc.richtext")
+            Image(systemName: "music.pages")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.primary, .orange)
                 .font(.title3)
-                .foregroundStyle(.orange)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 2) {
